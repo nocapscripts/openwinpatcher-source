@@ -1,19 +1,53 @@
 {
-  "name": "owp-electron",
-  "version": "0.1.0",
+  "name": "openwinpatcher",
+  "productName": "OpenWinPatcher",
+  "version": "1.0.1",
+  "description": "Free open-source Windows utility: install apps, tweaks, config and updates.",
+  "author": "Sten Pals <pals.sten@gmail.com>",
+  "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
-    "build": "vite build && electron-builder"
+    "build": "vite build && electron-builder --win nsis --x64",
+    "bundle": "vite build && electron-packager . OpenWinPatcher --platform=win32 --arch=x64 --out=pack --overwrite --asar --icon=build/icon.ico --ignore=\"/node_modules|/src|/release|/pack($|/)|/wix|/\\.git|/build|/yarn\\.lock|/vite\\.config\\.js|/README\\.md|\\.tgz$\" --win32metadata.requested-execution-level=requireAdministrator",
+    "msi": "yarn run bundle && wix build wix/Package.wxs -arch x64 -d SourceDir=%CD%\\pack\\OpenWinPatcher-win32-x64 -d ProjectDir=%CD% -o release/OpenWinPatcher-1.0.1.msi"
   },
   "build": {
-    "appId": "dev.local.winutil",
-    "files": ["dist/**", "electron/**"],
-    "win": { "target": "nsis", "requestedExecutionLevel": "requireAdministrator" }
+    "appId": "dev.local.openwinpatcher",
+    "productName": "OpenWinPatcher",
+    "directories": { "output": "release/${version}" },
+    "files": ["dist/**", "electron/**", "build/icon.ico"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OpenWinPatcher",
+      "artifactName": "OpenWinPatcher-Setup-${version}.${ext}"
+    }
   },
-  "dependencies": { "lucide-react": "^0.400.0", "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "dependencies": {
+    "lucide-react": "^0.400.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1", "concurrently": "^8.2.2", "cross-env": "^7.0.3",
-    "electron": "^31.0.0", "electron-builder": "^24.13.3", "vite": "^5.4.0", "wait-on": "^7.2.0"
+    "@electron/packager": "^20.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
   }
 }

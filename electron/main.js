@@ -10,8 +10,15 @@ function createWindow() {
     icon: path.join(__dirname, "../build/icon.ico"),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true },
   });
+
   if (process.env.NODE_ENV === "development") win.loadURL("http://localhost:5173");
   else win.loadFile(path.join(__dirname, "../dist/index.html"));
+
+  // Show the real error instead of a blank window
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => {
+    console.error("Load failed:", code, desc, url);
+    win.webContents.openDevTools({ mode: "detach" });
+  });
 }
 app.whenReady().then(createWindow);
 app.on("window-all-closed", () => app.quit());

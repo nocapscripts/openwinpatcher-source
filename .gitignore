@@ -3,3 +3,9 @@ node_modules
 yarn.lock
 build/
 build
+release/
+release
+pack/
+pack
+dist/
+dist

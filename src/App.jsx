@@ -75,7 +75,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <span className="title">WinBox</span>
+        <span className="title">Open Windows Patcher</span>
         <div className="win-btns">
           <button onClick={api.min}><Minus size={14} /></button>
           <button onClick={api.max}><Square size={12} /></button>
