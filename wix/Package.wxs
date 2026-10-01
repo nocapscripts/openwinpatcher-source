@@ -1,6 +1,6 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="OpenWinPatcher" Manufacturer="NoCapScripts" Version="1.0.1"
-           UpgradeCode="cbad8f5c-3a0d-4ea7-a74d-96d90418646f" Scope="perMachine">
+  <Package Name="OpenWinPatcher" Manufacturer="NoCapScripts" Version="1.0.2"
+           UpgradeCode="cbad8f5c-3a0d-4ea7-a74d-96d90498646f" Scope="perMachine">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of OpenWinPatcher is already installed." />
     <MediaTemplate EmbedCab="yes" />

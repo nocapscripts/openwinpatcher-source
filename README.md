@@ -2,6 +2,9 @@
 
 A free, open-source Windows utility built with React. Install apps with winget and choco, apply privacy and performance tweaks, change Windows settings, and control Windows Update from one place.
 
+
+
+
 ## Security warning
 
 **Only download OpenWinPatcher from this official repository and its Releases page.**

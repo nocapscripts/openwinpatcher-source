@@ -1,7 +1,7 @@
 {
   "name": "openwinpatcher",
   "productName": "OpenWinPatcher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Free open-source Windows utility: install apps, tweaks, config and updates.",
   "author": "Sten Pals <pals.sten@gmail.com>",
   "license": "MIT",
@@ -10,7 +10,7 @@
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build && electron-builder --win nsis --x64",
     "bundle": "vite build && electron-packager . OpenWinPatcher --platform=win32 --arch=x64 --out=pack --overwrite --asar --icon=build/icon.ico --ignore=\"/node_modules|/src|/release|/pack($|/)|/wix|/\\.git|/build|/yarn\\.lock|/vite\\.config\\.js|/README\\.md|\\.tgz$\" --win32metadata.requested-execution-level=requireAdministrator",
-    "msi": "yarn run bundle && wix build wix/Package.wxs -arch x64 -d SourceDir=%CD%\\pack\\OpenWinPatcher-win32-x64 -d ProjectDir=%CD% -o release/OpenWinPatcher-1.0.1.msi"
+    "msi": "yarn run bundle && wix build wix/Package.wxs -arch x64 -d SourceDir=%CD%\\pack\\OpenWinPatcher-win32-x64 -d ProjectDir=%CD% -o release/OpenWinPatcher-Setup-v1.0.2.msi"
   },
   "build": {
     "appId": "dev.local.openwinpatcher",

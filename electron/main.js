@@ -1,9 +1,11 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
+const { registerTerminal, openConsole, log, createSink } = require("./powerShell");
 const path = require("path");
 const os = require("os");
 
 let win;
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 780, frame: false, backgroundColor: "#1c2029",
@@ -20,61 +22,110 @@ function createWindow() {
     win.webContents.openDevTools({ mode: "detach" });
   });
 }
-app.whenReady().then(createWindow);
+
+// One startup block: terminal IPC first, then the window, then the PowerShell window.
+app.whenReady().then(() => {
+  registerTerminal();
+  createWindow();
+  openConsole();
+  setTimeout(() => win?.focus(), 400); // keep focus on the app, not the console
+});
+
 app.on("window-all-closed", () => app.quit());
 
 ipcMain.on("win:min", () => win.minimize());
 ipcMain.on("win:max", () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
 ipcMain.on("win:close", () => win.close());
 
-const run = (cmd, args) =>
+const send = (event) => win?.webContents.send("progress", event);
+
+// Runs a command. With stream:true its output is shown live in the PowerShell window.
+const run = (cmd, args, { stream = false, options = {} } = {}) =>
   new Promise((resolve) => {
     let out = "";
-    const p = spawn(cmd, args, { shell: true });
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (out += d));
-    p.on("close", (code) => resolve({ code, out }));
-    p.on("error", (e) => resolve({ code: -1, out: String(e) }));
+    const sink = stream ? createSink() : null;
+    const p = spawn(cmd, args, options);
+
+    const onData = (d) => {
+      out += d;
+      sink?.push(d);
+    };
+
+    p.stdout.on("data", onData);
+    p.stderr.on("data", onData);
+    p.on("close", (code) => {
+      sink?.flush();
+      resolve({ code, out });
+    });
+    p.on("error", (e) => {
+      sink?.flush();
+      if (stream) log(`[ERROR] ${e}`);
+      resolve({ code: -1, out: String(e) });
+    });
   });
 
 const flags = ["--silent", "--accept-package-agreements", "--accept-source-agreements"];
 
 ipcMain.handle("apps:install", async (_e, list) => {
   const results = [];
+
   for (let i = 0; i < list.length; i++) {
-    win.webContents.send("progress", `Installing ${i + 1}/${list.length}: ${list[i].name}`);
-    const r = await run("winget", ["install", "-e", "--id", list[i].id, ...flags]);
-    results.push({ id: list[i].id, ok: r.code === 0 });
+    const app_ = list[i];
+
+    send({
+      label: `Installing ${app_.name}`,
+      status: `Installing ${i + 1}/${list.length}: ${app_.name}`,
+      progress: (i / list.length) * 100,
+    });
+
+    log("", `PS> winget install -e --id ${app_.id}`);
+
+    const r = await run("winget", ["install", "-e", "--id", app_.id, ...flags], {
+      stream: true,
+      options: { shell: true },
+    });
+
+    if (r.code !== 0) log(`[ERROR] ${app_.name} exited with code ${r.code}`);
+
+    results.push({ id: app_.id, ok: r.code === 0 });
   }
-  win.webContents.send("progress", "");
+
   return results;
 });
 
 ipcMain.handle("apps:upgradeAll", async () => {
-  win.webContents.send("progress", "Upgrading all packages…");
-  const r = await run("winget", ["upgrade", "--all", ...flags]);
-  win.webContents.send("progress", "");
+  send({ label: "Upgrading applications", status: "Upgrading all packages…" });
+  log("", "PS> winget upgrade --all");
+
+  const r = await run("winget", ["upgrade", "--all", ...flags], {
+    stream: true,
+    options: { shell: true },
+  });
+
+  if (r.code !== 0) log(`[ERROR] winget upgrade exited with code ${r.code}`);
   return r.code === 0;
 });
 
 ipcMain.handle("apps:installed", async (_e, ids) => {
-  const { out } = await run("winget", ["list", "--accept-source-agreements"]);
+  const { out } = await run("winget", ["list", "--accept-source-agreements"], {
+    options: { shell: true },
+  });
   const text = out.toLowerCase();
   return ids.filter((id) => text.includes(id.toLowerCase()));
 });
 
-// Run a PowerShell script (no shell quoting issues)
-ipcMain.handle("ps:run", (_e, script) =>
-  new Promise((resolve) => {
-    let out = "";
-    const p = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]);
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (out += d));
-    p.on("close", (code) => resolve({ code, out }));
-    p.on("error", (e) => resolve({ code: -1, out: String(e) }));
-  })
-);
+// Run a PowerShell script (no shell quoting issues). Output streams to the PowerShell window.
+// The result has no "output" field on purpose: the renderer would print it a second time.
+ipcMain.handle("ps:run", async (_e, script) => {
+  const r = await run(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+    { stream: true }
+  );
 
+  if (r.code !== 0) log(`[ERROR] script exited with code ${r.code}`);
+  return { code: r.code, out: r.out };
+});
 
 ipcMain.handle("sys:info", () => ({
   app: app.getVersion(),
