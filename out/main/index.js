@@ -5,6 +5,7 @@ const { registerTerminal, openConsole, log, createSink } = require("./powerShell
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const { CreateLog } = require("./utils/logs");
 let win;
 function createWindow() {
   win = new BrowserWindow({
@@ -21,11 +22,18 @@ function createWindow() {
     console.error("Load failed:", code, desc, url);
     win.webContents.openDevTools({ mode: "detach" });
   });
+  if (!app.isPackaged) {
+    win.webContents.on("console-message", (...args) => {
+      const message = args[0]?.message ?? args[2];
+      console.log("[renderer]", message);
+    });
+  }
 }
 app.whenReady().then(() => {
   registerTerminal();
   createWindow();
   openConsole();
+  CreateLog("info", "UI Start success");
   setTimeout(() => win?.focus(), 400);
 });
 app.on("window-all-closed", () => app.quit());
@@ -166,4 +174,8 @@ ipcMain.handle("open:external", (_e, url) => {
   if (typeof url !== "string" || !url.startsWith("https://github.com/")) return false;
   shell.openExternal(url);
   return true;
+});
+ipcMain.handle("apps:chocoCheck", async () => {
+  const exe = chocoPath();
+  return !!exe;
 });

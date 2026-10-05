@@ -43,15 +43,81 @@ const btnBase =
 
 const variants = {
   default:
-    "border-line-2 bg-panel hover:enabled:border-faint hover:enabled:bg-panel-2 disabled:text-faint",
+    "border-line-2 bg-panel text-text " +
+    "shadow-[0_1px_2px_rgba(0,0,0,.18)] " +
+    "hover:enabled:border-white/15 hover:enabled:bg-panel-2 hover:enabled:text-white " +
+    "active:enabled:bg-panel active:enabled:scale-[.98] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:opacity-60",
+
   ghost:
-    "border-transparent bg-transparent text-muted hover:enabled:bg-panel-2 hover:enabled:text-text disabled:text-faint",
+    "border-transparent bg-transparent text-muted " +
+    "hover:enabled:border-line-2 hover:enabled:bg-panel-2 hover:enabled:text-text " +
+    "active:enabled:bg-panel active:enabled:scale-[.98] " +
+    "disabled:text-faint disabled:opacity-50",
+
   primary:
-    "border-transparent bg-accent-strong font-semibold text-ink hover:enabled:bg-accent " +
-    "disabled:border-line disabled:bg-panel disabled:text-faint",
+    "border-accent/50 bg-accent-strong text-ink font-semibold " +
+    "shadow-[0_0_18px_rgba(95,208,230,.12)] " +
+    "hover:enabled:border-accent hover:enabled:bg-accent " +
+    "hover:enabled:shadow-[0_0_24px_rgba(95,208,230,.22)] " +
+    "active:enabled:scale-[.97] active:enabled:bg-accent-strong " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
   danger:
-    "border-danger/40 bg-danger/10 text-danger-strong hover:enabled:bg-danger hover:enabled:text-ink " +
-    "disabled:border-line disabled:bg-panel disabled:text-faint",
+    "border-danger/40 bg-danger/10 text-danger-strong " +
+    "shadow-[0_0_14px_rgba(239,68,68,.06)] " +
+    "hover:enabled:border-danger/70 hover:enabled:bg-danger hover:enabled:text-ink " +
+    "hover:enabled:shadow-[0_0_20px_rgba(239,68,68,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  success:
+    "border-success/40 bg-success/10 text-success-strong " +
+    "shadow-[0_0_14px_rgba(34,197,94,.06)] " +
+    "hover:enabled:border-success/70 hover:enabled:bg-success hover:enabled:text-ink " +
+    "hover:enabled:shadow-[0_0_20px_rgba(34,197,94,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  warning:
+    "border-warning/40 bg-warning/10 text-warning-strong " +
+    "shadow-[0_0_14px_rgba(245,158,11,.06)] " +
+    "hover:enabled:border-warning/70 hover:enabled:bg-warning hover:enabled:text-ink " +
+    "hover:enabled:shadow-[0_0_20px_rgba(245,158,11,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  info:
+    "border-info/40 bg-info/10 text-info-strong " +
+    "shadow-[0_0_14px_rgba(59,130,246,.06)] " +
+    "hover:enabled:border-info/70 hover:enabled:bg-info hover:enabled:text-ink " +
+    "hover:enabled:shadow-[0_0_20px_rgba(59,130,246,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  purple:
+    "border-purple-500/40 bg-purple-500/10 text-purple-300 " +
+    "shadow-[0_0_14px_rgba(168,85,247,.06)] " +
+    "hover:enabled:border-purple-400/70 hover:enabled:bg-purple-500 hover:enabled:text-white " +
+    "hover:enabled:shadow-[0_0_20px_rgba(168,85,247,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  orange:
+    "border-orange-500/40 bg-orange-500/10 text-orange-300 " +
+    "shadow-[0_0_14px_rgba(249,115,22,.06)] " +
+    "hover:enabled:border-orange-400/70 hover:enabled:bg-orange-500 hover:enabled:text-white " +
+    "hover:enabled:shadow-[0_0_20px_rgba(249,115,22,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  red:
+    "border-red-500/40 bg-red-500/10 text-red-300 " +
+    "shadow-[0_0_14px_rgba(239,68,68,.06)] " +
+    "hover:enabled:border-red-400/70 hover:enabled:bg-red-500 hover:enabled:text-white " +
+    "hover:enabled:shadow-[0_0_20px_rgba(239,68,68,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
 };
 
 export const Btn = ({ variant = "default", className, ...p }) => (

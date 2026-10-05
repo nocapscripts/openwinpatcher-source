@@ -1,384 +1,2211 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Search, X } from "lucide-react";
 
 import { APPS, CATEGORIES } from "./tweaks/apps.js";
 import Report from "./Report.jsx";
 import { Tweaks, Config, Updates } from "./Pages.jsx";
-import { AppTile, ProgressPanel, Rail, TitleBar } from "./components/Shell.jsx";
-import { Btn, H1, H2, Main, Scroll, Select, Toolbar } from "./components/ui.jsx";
 
-// Browser fallback so the UI can be previewed without Electron
+import {
+  AppTile,
+  ProgressPanel,
+  Rail,
+  TitleBar,
+} from "./components/Shell.jsx";
+
+import {
+  Btn,
+  H1,
+  H2,
+  Main,
+  Scroll,
+  Select,
+  Toolbar,
+} from "./components/ui.jsx";
+
+/* =========================================================
+ * API
+ * ========================================================= */
+
 const api = window.api ?? {
   min() {},
   max() {},
   close() {},
-  onProgress() {},
-  ps: async () => ({ code: 0 }),
+
+  onProgress() {
+    return undefined;
+  },
+
+  ps: async () => ({
+    code: 0,
+  }),
+
   install: async () => [],
+
   upgradeAll: async () => true,
+
   installed: async () => [],
-  pmStatus: async () => ({ winget: true, choco: false }),
+
+  chocoCheck: async () => false,
+
+  pmStatus: async () => ({
+    winget: false,
+    choco: false,
+  }),
 };
 
-// UI label -> value understood by the Electron main process
+/* =========================================================
+ * PACKAGE MANAGERS
+ * ========================================================= */
+
 const MANAGERS = {
-  "Auto (Recommended)": "auto", // WinGet first, Chocolatey as fallback
+  "Auto (Recommended)": "auto",
   WinGet: "winget",
   Chocolatey: "choco",
 };
 
-const APP_REFS = APPS.map(({ id, choco }) => ({ id, choco }));
-const BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
+/* =========================================================
+ * APP DATA
+ * ========================================================= */
 
-const CHOCO_INSTALL_SCRIPT =
-  "Set-ExecutionPolicy Bypass -Scope Process -Force; " +
-  "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
-  "iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))";
+const APP_REFS = APPS.map(({ id, choco }) => ({
+  id,
+  choco,
+}));
 
-const clamp = (n) => Math.min(100, Math.max(0, n));
-const errorMessage = (e) => e?.message || String(e);
+const BY_ID = Object.fromEntries(
+  APPS.map((app) => [app.id, app])
+);
+
+/* =========================================================
+ * POWERSHELL SCRIPTS
+ *
+ * IMPORTANT:
+ *
+ * Do NOT use PowerShell backticks inside JavaScript
+ * template literals.
+ *
+ * Keep PowerShell commands on one line instead.
+ * ========================================================= */
+
+/* ---------------------------------------------------------
+ * WINGET
+ * --------------------------------------------------------- */
+
+const WINGET_CHECK_SCRIPT = `
+$ErrorActionPreference = "SilentlyContinue"
+
+$winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+
+if (-not $winget) {
+    Write-Output "WinGet is not installed."
+    exit 1
+}
+
+$version = & $winget.Source --version 2>$null
+
+if ($LASTEXITCODE -ne 0 -or -not $version) {
+    Write-Output "WinGet was found but could not be executed."
+    exit 1
+}
+
+Write-Output "WinGet version: $version"
+exit 0
+`.trim();
+
+/* ---------------------------------------------------------
+ * CHOCOLATEY CHECK
+ * --------------------------------------------------------- */
+
+const CHOCO_CHECK_SCRIPT = `
+$ErrorActionPreference = "SilentlyContinue"
+
+$choco = Get-Command choco.exe -ErrorAction SilentlyContinue
+
+if (-not $choco) {
+    exit 1
+}
+
+$version = & $choco.Source --version 2>$null
+
+if ($LASTEXITCODE -ne 0 -or -not $version) {
+    exit 1
+}
+
+Write-Output "Chocolatey version: $version"
+exit 0
+`.trim();
+
+/* ---------------------------------------------------------
+ * CHOCOLATEY INSTALL
+ * --------------------------------------------------------- */
+
+const CHOCO_INSTALL_SCRIPT = `
+$ErrorActionPreference = "Stop"
+
+Set-ExecutionPolicy Bypass -Scope Process -Force
+
+[System.Net.ServicePointManager]::SecurityProtocol =
+    [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+
+Write-Output "Installing Chocolatey..."
+
+iex ((New-Object System.Net.WebClient).DownloadString(
+    "https://community.chocolatey.org/install.ps1"
+))
+
+if (-not (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+    throw "Chocolatey installation completed but choco.exe was not found."
+}
+
+Write-Output "Chocolatey installation completed."
+`.trim();
+
+/* ---------------------------------------------------------
+ * CHOCOLATEY REMOVE
+ * --------------------------------------------------------- */
+
+const CHOCO_REMOVE_SCRIPT = `
+$ErrorActionPreference = "SilentlyContinue"
+
+Write-Output "Removing Chocolatey..."
+
+$choco = Get-Command choco.exe -ErrorAction SilentlyContinue
+
+if ($choco) {
+    & $choco.Source uninstall chocolatey -y
+}
+
+Write-Output "Chocolatey package removal completed."
+exit 0
+`.trim();
+
+/* ---------------------------------------------------------
+ * CHOCOLATEY CLEAN
+ * --------------------------------------------------------- */
+
+const CHOCO_CLEAN_SCRIPT = `
+$ErrorActionPreference = "SilentlyContinue"
+
+Write-Output "Cleaning Chocolatey installation..."
+
+$paths = @(
+    "$env:ChocolateyInstall",
+    "$env:ProgramData\\chocolatey"
+)
+
+foreach ($path in $paths) {
+    if ($path -and (Test-Path -LiteralPath $path)) {
+        Write-Output "Removing: $path"
+
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+[Environment]::SetEnvironmentVariable(
+    "ChocolateyInstall",
+    $null,
+    "Machine"
+)
+
+[Environment]::SetEnvironmentVariable(
+    "ChocolateyInstall",
+    $null,
+    "User"
+)
+
+Write-Output "Chocolatey cleanup completed."
+`.trim();
+
+/* =========================================================
+ * HELPERS
+ * ========================================================= */
+
+const clamp = (value) =>
+  Math.min(100, Math.max(0, Number(value) || 0));
+
+const errorMessage = (error) =>
+  error?.message || String(error);
+
+const successfulPsResult = (result) => {
+  if (result === true) {
+    return true;
+  }
+
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+
+  return Number(result.code) === 0;
+};
+
+/* =========================================================
+ * APP
+ * ========================================================= */
 
 export default function App() {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All categories");
-  const [manager, setManager] = useState("Auto (Recommended)");
-  const [audience, setAudience] = useState("Everyone");
+  /* =======================================================
+   * FILTER STATE
+   * ======================================================= */
 
-  const [selected, setSelected] = useState(new Set());
-  const [installed, setInstalled] = useState(new Set());
+  const [query, setQuery] = useState("");
+
+  const [category, setCategory] =
+    useState("All categories");
+
+  const [manager, setManager] =
+    useState("Auto (Recommended)");
+
+  const [audience, setAudience] =
+    useState("Everyone");
+
+  /* =======================================================
+   * APPLICATION STATE
+   * ======================================================= */
+
+  const [selected, setSelected] =
+    useState(new Set());
+
+  const [installed, setInstalled] =
+    useState(new Set());
+
+  /* =======================================================
+   * PACKAGE MANAGER STATE
+   * ======================================================= */
+
+  const [pm, setPm] = useState({
+    winget: false,
+    choco: false,
+  });
+
+  /* =======================================================
+   * SYSTEM STATE
+   * ======================================================= */
 
   const [sys, setSys] = useState(null);
-  const [pm, setPm] = useState({ winget: true, choco: false });
-  const [status, setStatus] = useState("");
-  const [tab, setTab] = useState("install");
 
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("Ready");
+  /* =======================================================
+   * UI STATE
+   * ======================================================= */
 
-  const [isRunning, setIsRunning] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const [tab, setTab] =
+    useState("install");
 
-  const searchRef = useRef(null);
+  const [status, setStatus] =
+    useState("");
 
-  const mode = MANAGERS[manager];
-  // With Chocolatey selected, apps without a Chocolatey package can't be installed
-  const available = useCallback((a) => mode !== "choco" || !!a.choco, [mode]);
+  const [progress, setProgress] =
+    useState(0);
 
-  /* ---------------- system info + package managers ---------------- */
-  const refreshPm = useCallback(async () => {
-    try {
-      setPm(await api.pmStatus());
-    } catch {
-      /* keep the previous value */
-    }
-  }, []);
+  const [progressLabel, setProgressLabel] =
+    useState("Ready");
 
-  useEffect(() => {
-    window.api?.sysInfo?.().then(setSys);
-    refreshPm();
-  }, [refreshPm]);
+  const [isRunning, setIsRunning] =
+    useState(false);
 
-  // drop selected apps that the chosen manager can't install
-  useEffect(() => {
-    setSelected((cur) => {
-      const next = new Set([...cur].filter((id) => available(BY_ID[id])));
-      return next.size === cur.size ? cur : next;
-    });
-  }, [available]);
+  const [hasError, setHasError] =
+    useState(false);
 
-  /* ---------------- keyboard shortcuts ----------------
-   * Ctrl+F focuses search, Esc clears it while focused.
+  const searchRef =
+    useRef(null);
+
+  /*
+   * This is the actual operation lock.
+   *
+   * React state can be stale inside async callbacks,
+   * so this ref is the authoritative source.
    */
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        setTab("install");
-        // wait for the install page to mount if we came from another tab
-        setTimeout(() => searchRef.current?.focus(), 50);
+  const operationRef =
+    useRef(false);
+
+  /* =======================================================
+   * PACKAGE MANAGER MODE
+   * ======================================================= */
+
+  const mode =
+    MANAGERS[manager] ?? "auto";
+
+  /* =======================================================
+   * APP AVAILABILITY
+   * ======================================================= */
+
+  const available = useCallback(
+    (app) => {
+      /*
+       * Chocolatey-only filtering.
+       *
+       * WinGet and Auto allow all apps here because the
+       * backend decides which package manager can actually
+       * install a package.
+       */
+      if (mode === "choco") {
+        return Boolean(app.choco);
       }
-    };
 
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+      return true;
+    },
+    [mode]
+  );
 
-  /* ---------------- logging helpers ---------------- */
-  // output is written to the PowerShell window opened by the main process
-  const appendLog = useCallback((...lines) => {
-    api.termAppend?.(lines);
+  /* =======================================================
+   * LOGGING
+   * ======================================================= */
+
+  const appendLog = useCallback(
+    (...lines) => {
+      api.termAppend?.(lines);
+    },
+    []
+  );
+
+  const clearLog = useCallback(() => {
+    api.termClear?.();
   }, []);
 
   const logError = useCallback(
-    (message) => appendLog("", `[ERROR] ${message}`),
+    (message) => {
+      appendLog(
+        "",
+        `[ERROR] ${message}`,
+        ""
+      );
+    },
     [appendLog]
   );
 
-  /* ---------------- progress / PowerShell events ----------------
-   * {
-   *   progress: 50,
-   *   label: "Installing Firefox",
-   *   status: "Installing Firefox...",
-   *   done: false
-   * }
-   */
-  useEffect(() => {
-    if (!api.onProgress) return;
+  /* =======================================================
+   * OPERATION CONTROLLER
+   *
+   * Every long-running action must use these functions.
+   * ======================================================= */
 
-    const cleanup = api.onProgress((event) => {
-      // backwards compatibility: a plain string is just a status
-      if (typeof event === "string") {
-        setStatus(event);
+  const startOperation = useCallback(
+    (label, logLines = []) => {
+      if (operationRef.current) {
+        return false;
+      }
+
+      operationRef.current = true;
+
+      setIsRunning(true);
+      setHasError(false);
+      setProgress(0);
+      setProgressLabel(label);
+      setStatus(`${label}...`);
+
+      clearLog();
+
+      appendLog(
+        `PS> ${label}`,
+        ...logLines,
+        ""
+      );
+
+      return true;
+    },
+    [appendLog, clearLog]
+  );
+
+  const finishOperation = useCallback(
+    ({
+      label,
+      status: finalStatus,
+      progress: finalProgress = 100,
+    }) => {
+      setProgress(
+        clamp(finalProgress)
+      );
+
+      setProgressLabel(label);
+
+      if (finalStatus) {
+        setStatus(finalStatus);
+      }
+
+      operationRef.current = false;
+      setIsRunning(false);
+    },
+    []
+  );
+
+  const failOperation = useCallback(
+    (label, error) => {
+      const message =
+        errorMessage(error);
+
+      setHasError(true);
+      setProgressLabel(label);
+      setStatus(
+        `${label}: ${message}`
+      );
+
+      logError(message);
+
+      operationRef.current = false;
+      setIsRunning(false);
+
+      return {
+        code: 1,
+        error: message,
+      };
+    },
+    [logError]
+  );
+
+  /* =======================================================
+   * POWERSHELL EXECUTOR
+   *
+   * This function NEVER modifies operation state.
+   * ======================================================= */
+
+  const executePs = useCallback(
+    async (script, label) => {
+      appendLog(`PS> ${label}`);
+
+      try {
+        const result =
+          await api.ps(script);
+
+        if (
+          !successfulPsResult(result)
+        ) {
+          const message =
+            result?.error ||
+            `${label} failed with exit code ${
+              result?.code ?? "unknown"
+            }`;
+
+          appendLog(
+            `[ERROR] ${message}`
+          );
+
+          throw new Error(message);
+        }
+
+        appendLog(
+          `PS> ${label}: OK`
+        );
+
+        return result;
+      } catch (error) {
+        appendLog(
+          `[ERROR] ${label}: ${errorMessage(
+            error
+          )}`
+        );
+
+        throw error;
+      }
+    },
+    [appendLog]
+  );
+
+  /* =======================================================
+   * WINGET CHECK
+   *
+   * This is a helper only.
+   *
+   * It returns true/false and does not own the operation
+   * lifecycle.
+   * ======================================================= */
+
+  const checkWinget =
+    useCallback(async () => {
+      try {
+        appendLog(
+          "PS> Checking WinGet..."
+        );
+
+        const result =
+          await api.ps(
+            WINGET_CHECK_SCRIPT
+          );
+
+        const available =
+          successfulPsResult(result);
+
+        setPm((current) => ({
+          ...current,
+          winget: available,
+        }));
+
+        if (available) {
+          appendLog(
+            "PS> WinGet is available.",
+            ""
+          );
+        } else {
+          appendLog(
+            "PS> WinGet is not available.",
+            ""
+          );
+        }
+
+        return available;
+      } catch (error) {
+        setPm((current) => ({
+          ...current,
+          winget: false,
+        }));
+
+        appendLog(
+          `[WARN] WinGet check failed: ${errorMessage(
+            error
+          )}`
+        );
+
+        return false;
+      }
+    }, [appendLog]);
+
+  /* =======================================================
+   * CHOCOLATEY CHECK
+   * ======================================================= */
+
+  const checkChocolatey =
+    useCallback(async () => {
+      /*
+       * Use the backend check if available.
+       */
+      if (api.chocoCheck) {
+        try {
+          const result =
+            await api.chocoCheck();
+
+          const available =
+            Boolean(result);
+
+          setPm((current) => ({
+            ...current,
+            choco: available,
+          }));
+
+          return available;
+        } catch {
+          /*
+           * Fall through to PowerShell.
+           */
+        }
+      }
+
+      try {
+        const result =
+          await api.ps(
+            CHOCO_CHECK_SCRIPT
+          );
+
+        const available =
+          successfulPsResult(result);
+
+        setPm((current) => ({
+          ...current,
+          choco: available,
+        }));
+
+        return available;
+      } catch {
+        setPm((current) => ({
+          ...current,
+          choco: false,
+        }));
+
+        return false;
+      }
+    }, []);
+
+  /* =======================================================
+   * REFRESH PACKAGE MANAGERS
+   * ======================================================= */
+
+  const refreshPm = useCallback(
+    async () => {
+      /*
+       * Try the backend status first.
+       */
+      try {
+        const result =
+          await api.pmStatus();
+
+        if (
+          result &&
+          typeof result === "object"
+        ) {
+          setPm({
+            winget: Boolean(
+              result.winget
+            ),
+            choco: Boolean(
+              result.choco
+            ),
+          });
+
+          return result;
+        }
+      } catch {
+        /*
+         * Fall through to direct checks.
+         */
+      }
+
+      /*
+       * Direct detection fallback.
+       */
+      const [winget, choco] =
+        await Promise.all([
+          checkWinget(),
+          checkChocolatey(),
+        ]);
+
+      const result = {
+        winget,
+        choco,
+      };
+
+      setPm(result);
+
+      return result;
+    },
+    [
+      checkChocolatey,
+      checkWinget,
+    ]
+  );
+
+  /* =======================================================
+   * INSTALLED APPLICATIONS
+   *
+   * This is completely separate from package manager
+   * detection.
+   * ======================================================= */
+
+  const refreshInstalled =
+    useCallback(async () => {
+      try {
+        const result =
+          await api.installed(
+            APP_REFS
+          );
+
+        const ids =
+          Array.isArray(result)
+            ? result
+            : [];
+
+        setInstalled(
+          new Set(ids)
+        );
+
+        return ids;
+      } catch (error) {
+        appendLog(
+          `[WARN] Failed to refresh installed apps: ${errorMessage(
+            error
+          )}`
+        );
+
+        return [];
+      }
+    }, [appendLog]);
+
+  /* =======================================================
+   * INITIAL SYSTEM LOAD
+   * ======================================================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      try {
+        const result =
+          await window.api?.sysInfo?.();
+
+        if (
+          mounted &&
+          result
+        ) {
+          setSys(result);
+        }
+      } catch {
+        /*
+         * System information is optional.
+         */
+      }
+
+      await refreshPm();
+      await refreshInstalled();
+    };
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    refreshInstalled,
+    refreshPm,
+  ]);
+
+  /* =======================================================
+   * PROGRESS EVENTS
+   *
+   * These ONLY update UI.
+   *
+   * They NEVER finish operations.
+   * ======================================================= */
+
+  useEffect(() => {
+    if (!api.onProgress) {
+      return undefined;
+    }
+
+    const cleanup =
+      api.onProgress((event) => {
+        if (
+          typeof event === "string"
+        ) {
+          setStatus(event);
+          return;
+        }
+
+        if (!event) {
+          return;
+        }
+
+        if (
+          event.status !== undefined
+        ) {
+          setStatus(
+            event.status
+          );
+        }
+
+        if (
+          event.label !== undefined
+        ) {
+          setProgressLabel(
+            event.label
+          );
+        }
+
+        if (
+          typeof event.progress ===
+          "number"
+        ) {
+          setProgress(
+            clamp(event.progress)
+          );
+        }
+      });
+
+    return typeof cleanup ===
+      "function"
+      ? cleanup
+      : undefined;
+  }, []);
+
+  /* =======================================================
+   * GENERIC POWERSHELL ACTION
+   *
+   * Used by Tweaks / Config / Updates.
+   * ======================================================= */
+
+  const runPs = useCallback(
+    async (script, label) => {
+      if (
+        !startOperation(
+          label
+        )
+      ) {
+        return {
+          code: 1,
+          error:
+            "Another operation is running.",
+        };
+      }
+
+      try {
+        const result =
+          await executePs(
+            script,
+            label
+          );
+
+        finishOperation({
+          label,
+          status: `${label}: done`,
+        });
+
+        return result;
+      } catch (error) {
+        return failOperation(
+          label,
+          error
+        );
+      }
+    },
+    [
+      executePs,
+      failOperation,
+      finishOperation,
+      startOperation,
+    ]
+  );
+
+  /* =======================================================
+   * INSTALL CHOCOLATEY
+   * ======================================================= */
+
+  const installChocolatey =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Installing Chocolatey",
+          [
+            "PS> Starting Chocolatey installation...",
+          ]
+        )
+      ) {
+        return false;
+      }
+
+      try {
+        setProgress(10);
+
+        setProgressLabel(
+          "Installing Chocolatey"
+        );
+
+        setStatus(
+          "Installing Chocolatey..."
+        );
+
+        await executePs(
+          CHOCO_INSTALL_SCRIPT,
+          "Install Chocolatey"
+        );
+
+        setProgress(75);
+
+        setProgressLabel(
+          "Verifying Chocolatey"
+        );
+
+        setStatus(
+          "Verifying Chocolatey..."
+        );
+
+        const verified =
+          await checkChocolatey();
+
+        if (!verified) {
+          throw new Error(
+            "Chocolatey was installed but could not be verified."
+          );
+        }
+
+        setPm((current) => ({
+          ...current,
+          choco: true,
+        }));
+
+        await refreshPm();
+
+        finishOperation({
+          label:
+            "Chocolatey installed",
+          status:
+            "Chocolatey installed successfully.",
+        });
+
+        appendLog(
+          "",
+          "PS> Chocolatey installation successful.",
+          ""
+        );
+
+        return true;
+      } catch (error) {
+        failOperation(
+          "Chocolatey installation failed",
+          error
+        );
+
+        return false;
+      }
+    }, [
+      appendLog,
+      checkChocolatey,
+      executePs,
+      failOperation,
+      finishOperation,
+      refreshPm,
+      startOperation,
+    ]);
+
+  /* =======================================================
+   * REMOVE CHOCOLATEY INTERNAL
+   *
+   * Does not own operation lifecycle.
+   * ======================================================= */
+
+  const removeChocolateyInternal =
+    useCallback(async () => {
+      setProgress(20);
+
+      setProgressLabel(
+        "Removing Chocolatey"
+      );
+
+      setStatus(
+        "Removing Chocolatey..."
+      );
+
+      appendLog(
+        "PS> Chocolatey detected.",
+        "PS> Removing existing installation..."
+      );
+
+      await executePs(
+        CHOCO_REMOVE_SCRIPT,
+        "Remove Chocolatey"
+      );
+
+      setProgress(45);
+
+      setProgressLabel(
+        "Cleaning Chocolatey"
+      );
+
+      setStatus(
+        "Cleaning Chocolatey files..."
+      );
+
+      await executePs(
+        CHOCO_CLEAN_SCRIPT,
+        "Clean Chocolatey"
+      );
+
+      setPm((current) => ({
+        ...current,
+        choco: false,
+      }));
+
+      appendLog(
+        "PS> Chocolatey removed.",
+        "PS> Chocolatey files cleaned.",
+        ""
+      );
+    }, [
+      appendLog,
+      executePs,
+    ]);
+
+  /* =======================================================
+   * REMOVE CHOCOLATEY
+   * ======================================================= */
+
+  const removeChocolatey =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Removing Chocolatey",
+          [
+            "PS> Starting Chocolatey removal...",
+          ]
+        )
+      ) {
+        return false;
+      }
+
+      try {
+        await removeChocolateyInternal();
+
+        await refreshPm();
+
+        finishOperation({
+          label:
+            "Chocolatey removed",
+          status:
+            "Chocolatey removed successfully.",
+        });
+
+        return true;
+      } catch (error) {
+        failOperation(
+          "Chocolatey removal failed",
+          error
+        );
+
+        return false;
+      }
+    }, [
+      failOperation,
+      finishOperation,
+      refreshPm,
+      removeChocolateyInternal,
+      startOperation,
+    ]);
+
+  /* =======================================================
+   * REINSTALL CHOCOLATEY
+   * ======================================================= */
+
+  const reinstallChocolatey =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Reinstalling Chocolatey",
+          [
+            "PS> Starting Chocolatey reinstall...",
+            "",
+          ]
+        )
+      ) {
+        return false;
+      }
+
+      try {
+        /* -------------------------------------------------
+         * CHECK
+         * ------------------------------------------------- */
+
+        setProgress(5);
+
+        setProgressLabel(
+          "Checking Chocolatey"
+        );
+
+        setStatus(
+          "Checking Chocolatey installation..."
+        );
+
+        const currentlyInstalled =
+          await checkChocolatey();
+
+        /* -------------------------------------------------
+         * REMOVE
+         * ------------------------------------------------- */
+
+        if (
+          currentlyInstalled
+        ) {
+          await removeChocolateyInternal();
+        } else {
+          appendLog(
+            "PS> Chocolatey is not installed.",
+            "PS> Skipping removal.",
+            ""
+          );
+        }
+
+        /* -------------------------------------------------
+         * INSTALL
+         * ------------------------------------------------- */
+
+        setProgress(55);
+
+        setProgressLabel(
+          "Installing Chocolatey"
+        );
+
+        setStatus(
+          "Installing Chocolatey..."
+        );
+
+        await executePs(
+          CHOCO_INSTALL_SCRIPT,
+          "Install Chocolatey"
+        );
+
+        /* -------------------------------------------------
+         * VERIFY
+         * ------------------------------------------------- */
+
+        setProgress(85);
+
+        setProgressLabel(
+          "Verifying Chocolatey"
+        );
+
+        setStatus(
+          "Verifying Chocolatey..."
+        );
+
+        const verified =
+          await checkChocolatey();
+
+        if (!verified) {
+          throw new Error(
+            "Chocolatey installation completed but verification failed."
+          );
+        }
+
+        /* -------------------------------------------------
+         * REFRESH
+         * ------------------------------------------------- */
+
+        setPm((current) => ({
+          ...current,
+          choco: true,
+        }));
+
+        await refreshPm();
+
+        /* -------------------------------------------------
+         * COMPLETE
+         * ------------------------------------------------- */
+
+        finishOperation({
+          label:
+            "Chocolatey reinstall complete",
+          status:
+            "Chocolatey reinstalled successfully.",
+        });
+
+        appendLog(
+          "PS> Chocolatey verified successfully.",
+          "PS> Reinstall completed.",
+          ""
+        );
+
+        return true;
+      } catch (error) {
+        failOperation(
+          "Chocolatey reinstall failed",
+          error
+        );
+
+        return false;
+      }
+    }, [
+      appendLog,
+      checkChocolatey,
+      executePs,
+      failOperation,
+      finishOperation,
+      refreshPm,
+      removeChocolateyInternal,
+      startOperation,
+    ]);
+
+  /* =======================================================
+   * CHECK WINGET UI ACTION
+   * ======================================================= */
+
+  const checkWingetStatus =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Checking WinGet",
+          [
+            "PS> Checking WinGet installation...",
+          ]
+        )
+      ) {
+        return false;
+      }
+
+      try {
+        const available =
+          await checkWinget();
+
+        if (!available) {
+          throw new Error(
+            "WinGet is not installed or could not be executed."
+          );
+        }
+
+        finishOperation({
+          label:
+            "WinGet available",
+          status:
+            "WinGet is installed and available.",
+        });
+
+        return true;
+      } catch (error) {
+        failOperation(
+          "WinGet check failed",
+          error
+        );
+
+        return false;
+      }
+    }, [
+      checkWinget,
+      failOperation,
+      finishOperation,
+      startOperation,
+    ]);
+
+  const reinstallWinget =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Reinstalling WinGet",
+          [
+            "PS> Reinstalling WinGet...",
+          ]
+        )
+      ) {
         return;
       }
 
-      if (!event) return;
-
-      if (event.status !== undefined) setStatus(event.status);
-      if (event.label !== undefined) setProgressLabel(event.label);
-      if (typeof event.progress === "number") setProgress(clamp(event.progress));
-
-      if (event.done) {
-        setIsRunning(false);
-        if (typeof event.progress !== "number") setProgress(100);
+      try {
+        await executePs(
+          "winget install --force --source winget --id Microsoft.WindowsTerminal",
+          "Reinstalling WinGet"
+        );
+      } catch (error) {
+        failOperation(
+          "Failed to reinstall WinGet",
+          error
+        );
       }
-    });
+    }, []);
 
-    return typeof cleanup === "function" ? cleanup : undefined;
-  }, [appendLog]);
+  /* =======================================================
+   * CHECK INSTALLED APPS
+   * ======================================================= */
 
-  /* ---------------- operation helpers ---------------- */
-  const begin = (label, firstLines) => {
-    setIsRunning(true);
-    setHasError(false);
-    setProgress(0);
-    setProgressLabel(label);
-    setStatus(`${label}…`);
+  const getInstalled =
+    useCallback(async () => {
+      if (
+        !startOperation(
+          "Checking installed apps",
+          [
+            "PS> Checking installed applications...",
+          ]
+        )
+      ) {
+        return;
+      }
 
-    if (firstLines) {
-      api.termClear?.();
-      api.termAppend?.(firstLines);
-    }
-  };
+      try {
+        const result =
+          await refreshInstalled();
 
-  const refreshInstalled = async () => {
-    try {
-      setInstalled(new Set(await api.installed(APP_REFS)));
-    } catch {
-      // the operation itself succeeded, so don't overwrite the status
-    }
-  };
+        finishOperation({
+          label:
+            "Installed apps checked",
+          status:
+            `Found ${result.length} installed package${
+              result.length === 1
+                ? ""
+                : "s"
+            }.`,
+        });
+      } catch (error) {
+        failOperation(
+          "Failed to check installed apps",
+          error
+        );
+      }
+    }, [
+      failOperation,
+      finishOperation,
+      refreshInstalled,
+      startOperation,
+    ]);
 
-  /* ---------------- filtering ---------------- */
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  /* =======================================================
+   * INSTALL SELECTED
+   * ======================================================= */
 
-    return APPS.filter(
-      (a) =>
-        (category === "All categories" || a.category === category) &&
-        (audience === "Everyone" || a.foss) &&
-        a.name.toLowerCase().includes(q)
+  const installSelected =
+    useCallback(async () => {
+      if (
+        operationRef.current
+      ) {
+        return;
+      }
+
+      const apps =
+        APPS.filter(
+          (app) =>
+            selected.has(app.id) &&
+            available(app)
+        );
+
+      if (!apps.length) {
+        setHasError(true);
+        setProgressLabel(
+          "Nothing to install"
+        );
+        setStatus(
+          "No compatible applications are selected."
+        );
+        return;
+      }
+
+      /* -------------------------------------------------
+       * CHOCOLATEY VALIDATION
+       * ------------------------------------------------- */
+
+      if (
+        mode === "choco"
+      ) {
+        const available =
+          await checkChocolatey();
+
+        if (!available) {
+          setHasError(true);
+          setProgressLabel(
+            "Chocolatey required"
+          );
+          setStatus(
+            "Chocolatey is not installed."
+          );
+          return;
+        }
+      }
+
+      /* -------------------------------------------------
+       * WINGET VALIDATION
+       * ------------------------------------------------- */
+
+      if (
+        mode === "winget"
+      ) {
+        const available =
+          await checkWinget();
+
+        if (!available) {
+          setHasError(true);
+          setProgressLabel(
+            "WinGet required"
+          );
+          setStatus(
+            "WinGet is not installed or cannot be executed."
+          );
+          return;
+        }
+      }
+
+      /* -------------------------------------------------
+       * AUTO VALIDATION
+       * ------------------------------------------------- */
+
+      if (
+        mode === "auto"
+      ) {
+        const managers =
+          await refreshPm();
+
+        if (
+          !managers.winget &&
+          !managers.choco
+        ) {
+          setHasError(true);
+          setProgressLabel(
+            "Package manager required"
+          );
+          setStatus(
+            "Neither WinGet nor Chocolatey is available."
+          );
+          return;
+        }
+      }
+
+      /* -------------------------------------------------
+       * START
+       * ------------------------------------------------- */
+
+      if (
+        !startOperation(
+          "Installing applications",
+          [
+            `PS> Installing ${apps.length} application${
+              apps.length === 1
+                ? ""
+                : "s"
+            }...`,
+            "",
+          ]
+        )
+      ) {
+        return;
+      }
+
+      try {
+        setProgress(10);
+
+        const results =
+          await api.install(
+            apps,
+            mode
+          );
+
+        const normalized =
+          Array.isArray(results)
+            ? results
+            : [];
+
+        const failed =
+          normalized.filter(
+            (result) =>
+              !result?.ok
+          );
+
+        const successful =
+          normalized.filter(
+            (result) =>
+              result?.ok
+          );
+
+        /*
+         * If backend returned no result array,
+         * do not pretend everything succeeded.
+         */
+        if (
+          !normalized.length &&
+          apps.length
+        ) {
+          throw new Error(
+            "The installer returned no results."
+          );
+        }
+
+        setProgress(90);
+
+        if (
+          failed.length
+        ) {
+          const failedNames =
+            failed.map(
+              (result) =>
+                BY_ID[
+                  result.id
+                ]?.name ??
+                result.id ??
+                "Unknown application"
+            );
+
+          setHasError(true);
+
+          setSelected(
+            new Set(
+              failed
+                .map(
+                  (result) =>
+                    result.id
+                )
+                .filter(Boolean)
+            )
+          );
+
+          finishOperation({
+            label:
+              "Installation finished with errors",
+            progress: 100,
+            status:
+              `${successful.length}/${apps.length} installed. Failed: ${failedNames.join(
+                ", "
+              )}`,
+          });
+        } else {
+          setSelected(
+            new Set()
+          );
+
+          finishOperation({
+            label:
+              "Installation complete",
+            status:
+              "Installation completed successfully.",
+          });
+        }
+
+        await refreshInstalled();
+      } catch (error) {
+        failOperation(
+          "Installation failed",
+          error
+        );
+      }
+    }, [
+      available,
+      checkChocolatey,
+      checkWinget,
+      failOperation,
+      finishOperation,
+      mode,
+      refreshInstalled,
+      selected,
+      startOperation,
+    ]);
+
+  /* =======================================================
+   * UPGRADE ALL
+   * ======================================================= */
+
+  const upgradeAll =
+    useCallback(async () => {
+      if (
+        mode === "winget"
+      ) {
+        const available =
+          await checkWinget();
+
+        if (!available) {
+          setHasError(true);
+          setProgressLabel(
+            "WinGet required"
+          );
+          setStatus(
+            "WinGet is not installed or cannot be executed."
+          );
+          return;
+        }
+      }
+
+      if (
+        mode === "choco"
+      ) {
+        const available =
+          await checkChocolatey();
+
+        if (!available) {
+          setHasError(true);
+          setProgressLabel(
+            "Chocolatey required"
+          );
+          setStatus(
+            "Chocolatey is not installed."
+          );
+          return;
+        }
+      }
+
+      if (
+        mode === "auto"
+      ) {
+        const managers =
+          await refreshPm();
+
+        if (
+          !managers.winget &&
+          !managers.choco
+        ) {
+          setHasError(true);
+          setProgressLabel(
+            "Package manager required"
+          );
+          setStatus(
+            "Neither WinGet nor Chocolatey is available."
+          );
+          return;
+        }
+      }
+
+      if (
+        !startOperation(
+          "Upgrading applications",
+          [
+            "PS> Starting application upgrade...",
+            "",
+          ]
+        )
+      ) {
+        return;
+      }
+
+      try {
+        setProgress(10);
+
+        const result =
+          await api.upgradeAll(
+            mode
+          );
+
+        if (
+          result === false
+        ) {
+          throw new Error(
+            "Upgrade operation failed."
+          );
+        }
+
+        setProgress(90);
+
+        await refreshInstalled();
+
+        finishOperation({
+          label:
+            "Upgrade complete",
+          status:
+            "Applications upgraded successfully.",
+        });
+      } catch (error) {
+        failOperation(
+          "Upgrade failed",
+          error
+        );
+      }
+    }, [
+      checkChocolatey,
+      checkWinget,
+      failOperation,
+      finishOperation,
+      mode,
+      refreshInstalled,
+      refreshPm,
+      startOperation,
+    ]);
+
+  /* =======================================================
+   * FILTERING
+   * ======================================================= */
+
+  const visible =
+    useMemo(() => {
+      const q =
+        query
+          .trim()
+          .toLowerCase();
+
+      return APPS.filter(
+        (app) => {
+          const categoryMatch =
+            category ===
+              "All categories" ||
+            app.category ===
+              category;
+
+          const audienceMatch =
+            audience ===
+              "Everyone" ||
+            app.foss;
+
+          const searchMatch =
+            !q ||
+            app.name
+              .toLowerCase()
+              .includes(q);
+
+          return (
+            categoryMatch &&
+            audienceMatch &&
+            searchMatch
+          );
+        }
+      );
+    }, [
+      audience,
+      category,
+      query,
+    ]);
+
+  /* =======================================================
+   * SELECTION
+   * ======================================================= */
+
+  const toggle =
+    useCallback(
+      (id) => {
+        if (
+          operationRef.current
+        ) {
+          return;
+        }
+
+        setSelected(
+          (current) => {
+            const next =
+              new Set(current);
+
+            if (
+              next.has(id)
+            ) {
+              next.delete(id);
+            } else {
+              next.add(id);
+            }
+
+            return next;
+          }
+        );
+      },
+      []
     );
-  }, [query, category, audience]);
 
-  /* ---------------- selection ---------------- */
-  const toggle = useCallback((id) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const selectAll =
+    useCallback(() => {
+      if (
+        operationRef.current
+      ) {
+        return;
+      }
+
+      setSelected(
+        new Set(
+          visible
+            .filter(available)
+            .map(
+              (app) => app.id
+            )
+        )
+      );
+    }, [
+      available,
+      visible,
+    ]);
+
+  const deselectAll =
+    useCallback(() => {
+      if (
+        operationRef.current
+      ) {
+        return;
+      }
+
+      setSelected(
+        new Set()
+      );
+    }, []);
+
+  /* =======================================================
+   * MANAGER CHANGE
+   * ======================================================= */
+
+  const handleManagerChange =
+    useCallback(
+      (value) => {
+        if (
+          operationRef.current
+        ) {
+          return;
+        }
+
+        setManager(value);
+      },
+      []
+    );
+
+  /* =======================================================
+   * REMOVE INVALID SELECTIONS
+   * ======================================================= */
+
+  useEffect(() => {
+    setSelected(
+      (current) => {
+        const next =
+          new Set(
+            [...current].filter(
+              (id) =>
+                BY_ID[id] &&
+                available(
+                  BY_ID[id]
+                )
+            )
+          );
+
+        if (
+          next.size ===
+          current.size
+        ) {
+          return current;
+        }
+
+        return next;
+      }
+    );
+  }, [available]);
+
+  /* =======================================================
+   * KEYBOARD SHORTCUTS
+   * ======================================================= */
+
+  useEffect(() => {
+    const onKeyDown =
+      (event) => {
+        if (
+          (event.ctrlKey ||
+            event.metaKey) &&
+          event.key.toLowerCase() ===
+            "f"
+        ) {
+          event.preventDefault();
+
+          setTab("install");
+
+          setTimeout(() => {
+            searchRef.current?.focus();
+          }, 50);
+        }
+
+        if (
+          event.key ===
+            "Escape" &&
+          document.activeElement ===
+            searchRef.current
+        ) {
+          setQuery("");
+        }
+      };
+
+    window.addEventListener(
+      "keydown",
+      onKeyDown
+    );
+
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        onKeyDown
+      );
   }, []);
 
-  const selectAll = () => setSelected(new Set(visible.filter(available).map((a) => a.id)));
-  const deselectAll = () => setSelected(new Set());
+  /* =======================================================
+   * DERIVED UI
+   * ======================================================= */
 
-  /* ---------------- actions ---------------- */
-  const runPs = async (script, label) => {
-    if (isRunning) return { code: 1, error: "Another operation is running" };
-
-    begin(label, [`PS> ${label}`, ""]);
-
-    try {
-      const result = await api.ps(script);
-
-      if (result?.code === 0) {
-        setProgress(100);
-        setStatus(`${label}: done`);
-      } else {
-        setHasError(true);
-        setStatus(`${label}: failed (run the app as administrator)`);
-      }
-
-      return result;
-    } catch (error) {
-      const message = errorMessage(error);
-      logError(message);
-      setHasError(true);
-      setStatus(`${label}: failed`);
-      return { code: 1, error: message };
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const getInstalled = async () => {
-    begin("Checking installed apps");
-
-    try {
-      const result = await api.installed(APP_REFS);
-      setInstalled(new Set(result));
-      setProgress(100);
-      setStatus("Installed apps checked");
-    } catch (error) {
-      const message = errorMessage(error);
-      setHasError(true);
-      setStatus(`Failed to check installed apps: ${message}`);
-      appendLog(`[ERROR] ${message}`);
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const installSelected = async () => {
-    const apps = APPS.filter((a) => selected.has(a.id) && available(a));
-    if (!apps.length || isRunning) return;
-
-    begin("Installing applications", ["PS> Starting installation...", ""]);
-
-    try {
-      const results = await api.install(apps, mode);
-      const failed = (Array.isArray(results) ? results : []).filter((r) => !r.ok);
-
-      setProgress(100);
-
-      if (failed.length) {
-        const names = failed.map(
-          (f) => APPS.find((a) => a.id === f.id)?.name ?? f.id
-        );
-        setHasError(true);
-        setProgressLabel("Installation finished with errors");
-        setStatus(
-          `${apps.length - failed.length}/${apps.length} installed. Failed: ${names.join(", ")}`
-        );
-        setSelected(new Set(failed.map((f) => f.id))); // keep failures selected for a retry
-      } else {
-        setProgressLabel("Installation complete");
-        setStatus("Installation completed");
-        setSelected(new Set());
-      }
-
-      await refreshInstalled();
-    } catch (error) {
-      const message = errorMessage(error);
-      setHasError(true);
-      setStatus(`Installation failed: ${message}`);
-      logError(message);
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const installChocolatey = async () => {
-    const result = await runPs(CHOCO_INSTALL_SCRIPT, "Install Chocolatey");
-    await refreshPm();
-    return result;
-  };
-
-  const upgradeAll = async () => {
-    if (isRunning) return;
-
-    begin("Upgrading applications", ["PS> Starting upgrade...", ""]);
-
-    try {
-      const result = await api.upgradeAll(mode);
-      if (result === false) throw new Error("Upgrade operation failed");
-
-      setProgress(100);
-      setProgressLabel("Upgrade complete");
-      setStatus("Upgrade completed");
-
-      await refreshInstalled();
-    } catch (error) {
-      const message = errorMessage(error);
-      setHasError(true);
-      setStatus(`Upgrade failed: ${message}`);
-      logError(message);
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  /* ---------------- derived ---------------- */
-  const sections = (category === "All categories" ? CATEGORIES : [category])
-    .map((cat) => [cat, visible.filter((a) => a.category === cat)])
-    .filter(([, items]) => items.length > 0);
+  const sections = (
+    category ===
+    "All categories"
+      ? CATEGORIES
+      : [category]
+  )
+    .map((cat) => [
+      cat,
+      visible.filter(
+        (app) =>
+          app.category ===
+          cat
+      ),
+    ])
+    .filter(
+      ([, items]) =>
+        items.length > 0
+    );
 
   const effectiveManager =
-    mode === "auto" ? "WinGet, then Chocolatey" : manager;
-  const needChoco = mode === "choco" && !pm.choco;
+    mode === "auto"
+      ? pm.winget
+        ? "WinGet"
+        : pm.choco
+          ? "Chocolatey"
+          : "No package manager"
+      : manager;
 
-  /* ---------------- render ---------------- */
+  const needsChocolatey =
+    mode === "choco" &&
+    !pm.choco;
+
+  const canReinstallChocolatey =
+    pm.choco;
+
+  const needsWinget =
+    mode === "winget" &&
+    !pm.winget;
+
+  /* =======================================================
+   * RENDER
+   * ======================================================= */
+
   return (
     <div className="flex h-full flex-col">
-      <TitleBar api={api} title={sys ? `Open Windows Patcher - ${sys.app}` : "Open Windows Patcher"} />
+      {/* ===================================================
+       * TITLE BAR
+       * =================================================== */}
+
+      <TitleBar
+        api={api}
+        title={
+          sys
+            ? `Open Windows Patcher - ${sys.app}`
+            : "Open Windows Patcher"
+        }
+      />
 
       <div className="flex min-h-0 flex-1">
+        {/* =================================================
+         * SIDEBAR
+         * ================================================= */}
+
         <Rail
           tab={tab}
           onTab={setTab}
-          selectedCount={selected.size}
-          installedCount={installed.size}
+          selectedCount={
+            selected.size
+          }
+          installedCount={
+            installed.size
+          }
           manager={`Installing with ${effectiveManager}`}
         />
 
-        {tab === "tweaks" && <Main><Tweaks run={runPs} /></Main>}
-        {tab === "config" && <Main><Config run={runPs} /></Main>}
-        {tab === "updates" && <Main><Updates run={runPs} /></Main>}
-        {tab === "report" && <Main><Report lastStatus={status} /></Main>}
+        {/* =================================================
+         * TWEAKS
+         * ================================================= */}
+
+        {tab === "tweaks" && (
+          <Main>
+            <Tweaks
+              run={runPs}
+            />
+          </Main>
+        )}
+
+        {/* =================================================
+         * CONFIG
+         * ================================================= */}
+
+        {tab === "config" && (
+          <Main>
+            <Config
+              run={runPs}
+            />
+          </Main>
+        )}
+
+        {/* =================================================
+         * UPDATES
+         * ================================================= */}
+
+        {tab === "updates" && (
+          <Main>
+            <Updates
+              run={runPs}
+            />
+          </Main>
+        )}
+
+        {/* =================================================
+         * REPORT
+         * ================================================= */}
+
+        {tab === "report" && (
+          <Main>
+            <Report
+              lastStatus={status}
+            />
+          </Main>
+        )}
+
+        {/* =================================================
+         * INSTALL
+         * ================================================= */}
 
         {tab === "install" && (
           <Main>
-            <H1 aside={`${visible.length} packages`}>Apps</H1>
+            <H1
+              aside={`${visible.length} packages`}
+            >
+              Apps
+            </H1>
 
             <Toolbar>
+              {/* =========================================
+               * SEARCH
+               * ========================================= */}
+
               <label className="flex h-9 w-[260px] items-center gap-2 rounded-lg border border-line-2 bg-panel px-3 text-muted transition duration-150 hover:border-faint focus-within:border-accent/60 focus-within:bg-panel-2 focus-within:text-accent focus-within:shadow-[0_0_0_3px_rgba(95,208,230,.14)]">
                 <Search size={15} />
+
                 <input
                   ref={searchRef}
                   className="min-w-0 flex-1 bg-transparent text-text outline-none placeholder:text-faint disabled:opacity-60"
                   placeholder="Search packages (Ctrl+F)"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-                  disabled={isRunning}
+                  onChange={(event) =>
+                    setQuery(
+                      event.target.value
+                    )
+                  }
+                  disabled={
+                    isRunning
+                  }
                 />
-                {query && !isRunning && (
-                  <button
-                    type="button"
-                    onClick={() => setQuery("")}
-                    aria-label="Clear search"
-                    className="grid size-5 flex-none place-items-center rounded-full text-muted transition hover:bg-white/10 hover:text-text"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
+
+                {query &&
+                  !isRunning && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQuery("")
+                      }
+                      aria-label="Clear search"
+                      className="grid size-5 flex-none place-items-center rounded-full text-muted transition hover:bg-white/10 hover:text-text"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
               </label>
 
-              <Select label="Category" value={category} onChange={setCategory} options={["All categories", ...CATEGORIES]} />
-              <Select label="Package manager" value={manager} onChange={setManager} options={Object.keys(MANAGERS)} />
-              <Select label="Audience" value={audience} onChange={setAudience} options={["Everyone", "FOSS only"]} />
+              {/* =========================================
+               * CATEGORY
+               * ========================================= */}
+
+              <Select
+                label="Category"
+                value={category}
+                onChange={
+                  setCategory
+                }
+                options={[
+                  "All categories",
+                  ...CATEGORIES,
+                ]}
+              />
+
+              {/* =========================================
+               * PACKAGE MANAGER
+               * ========================================= */}
+
+              <Select
+                label="Package manager"
+                value={manager}
+                onChange={
+                  handleManagerChange
+                }
+                options={Object.keys(
+                  MANAGERS
+                )}
+              />
+
+              {/* =========================================
+               * AUDIENCE
+               * ========================================= */}
+
+              <Select
+                label="Audience"
+                value={audience}
+                onChange={
+                  setAudience
+                }
+                options={[
+                  "Everyone",
+                  "FOSS only",
+                ]}
+              />
 
               <span className="flex-1" />
 
-              {needChoco && (
-                <Btn disabled={isRunning} onClick={installChocolatey} title="Installs Chocolatey with the official script">
+              {/* =========================================
+               * WINGET
+               * ========================================= */}
+
+              {needsWinget && (
+                <Btn
+                  disabled={
+                    isRunning
+                  }
+                  onClick={
+                    checkWingetStatus
+                  }
+                  title="Check whether WinGet is installed"
+                >
+                  Check WinGet
+                </Btn>
+              )}
+
+              {mode === "winget" && (
+                <Btn
+                  variant="red"
+                  onClick={
+                    reinstallWinget
+                  }
+                >
+                  Reinstall WinGet
+                </Btn>
+              )}
+
+              {/* =========================================
+               * CHOCOLATEY INSTALL
+               * ========================================= */}
+
+              {needsChocolatey && (
+                <Btn
+                  disabled={
+                    isRunning
+                  }
+                  onClick={
+                    installChocolatey
+                  }
+                  title="Install Chocolatey"
+                >
                   Install Chocolatey
                 </Btn>
               )}
-              <Btn variant="ghost" disabled={isRunning} onClick={getInstalled}>Check installed</Btn>
-              <Btn variant="danger" disabled={isRunning} onClick={upgradeAll}>Upgrade all</Btn>
+
+              {/* =========================================
+               * CHOCOLATEY REINSTALL
+               * ========================================= */}
+
+              {mode === "choco" &&
+                canReinstallChocolatey && (
+                  <Btn
+                    variant="red"
+                    disabled={
+                      isRunning
+                    }
+                    onClick={
+                      reinstallChocolatey
+                    }
+                    title="Remove, clean and reinstall Chocolatey"
+                  >
+                    Reinstall Chocolatey
+                  </Btn>
+                )}
+
+              {/* =========================================
+               * GENERAL
+               * ========================================= */}
+
+              <Btn
+                variant="orange"
+                disabled={
+                  isRunning
+                }
+                onClick={
+                  getInstalled
+                }
+              >
+                Check installed
+              </Btn>
+
+              <Btn
+                variant="danger"
+                disabled={
+                  isRunning
+                }
+                onClick={
+                  upgradeAll
+                }
+              >
+                Upgrade all
+              </Btn>
+
+              {/* =========================================
+               * OPTIONAL REMOVE
+               * ========================================= */}
+
+              {mode === "choco" &&
+                pm.choco && (
+                  <Btn
+                    variant="danger"
+                    disabled={
+                      isRunning
+                    }
+                    onClick={
+                      removeChocolatey
+                    }
+                  >
+                    Remove Chocolatey
+                  </Btn>
+                )}
             </Toolbar>
+
+            {/* =================================================
+             * PROGRESS
+             * ================================================= */}
 
             <ProgressPanel
               running={isRunning}
@@ -388,48 +2215,141 @@ export default function App() {
               status={status}
             />
 
+            {/* =================================================
+             * APPLICATION LIST
+             * ================================================= */}
+
             <Scroll>
-              {sections.length === 0 ? (
+              {sections.length ===
+              0 ? (
                 <div className="flex flex-col items-center gap-1.5 px-4 py-14 text-center text-muted">
-                  <strong className="text-base font-semibold text-text">No packages found</strong>
-                  <span>Try a different search, or switch the category or audience filter.</span>
+                  <strong className="text-base font-semibold text-text">
+                    No packages found
+                  </strong>
+
+                  <span>
+                    Try a different
+                    search, or switch
+                    the category or
+                    audience filter.
+                  </span>
                 </div>
               ) : (
-                sections.map(([cat, items]) => (
-                  <section key={cat}>
-                    <H2 count={items.length}>{cat}</H2>
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2.5">
-                      {items.map((a) => (
-                        <AppTile
-                          key={a.id}
-                          app={a}
-                          checked={selected.has(a.id)}
-                          installed={installed.has(a.id)}
-                          disabled={isRunning}
-                          unavailable={!available(a)}
-                          onToggle={toggle}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))
+                sections.map(
+                  ([cat, items]) => (
+                    <section
+                      key={cat}
+                    >
+                      <H2
+                        count={
+                          items.length
+                        }
+                      >
+                        {cat}
+                      </H2>
+
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2.5">
+                        {items.map(
+                          (app) => (
+                            <AppTile
+                              key={
+                                app.id
+                              }
+                              app={app}
+                              checked={selected.has(
+                                app.id
+                              )}
+                              installed={installed.has(
+                                app.id
+                              )}
+                              disabled={
+                                isRunning
+                              }
+                              unavailable={
+                                !available(
+                                  app
+                                )
+                              }
+                              onToggle={
+                                toggle
+                              }
+                            />
+                          )
+                        )}
+                      </div>
+                    </section>
+                  )
+                )
               )}
             </Scroll>
+
+            {/* =================================================
+             * SELECTION BAR
+             * ================================================= */}
 
             <div
               className={
                 "mb-4 flex flex-none items-center gap-3 rounded-[14px] border border-line-2 bg-panel-2 px-4 py-3 shadow-[0_18px_40px_-20px_rgba(0,0,0,.9)] transition-all duration-300 ease-out-expo " +
-                (selected.size ? "mt-3 translate-y-0 opacity-100" : "pointer-events-none mt-0 h-0 translate-y-3 overflow-hidden border-transparent py-0 opacity-0")
+                (selected.size
+                  ? "mt-3 translate-y-0 opacity-100"
+                  : "pointer-events-none mt-0 h-0 translate-y-3 overflow-hidden border-transparent py-0 opacity-0")
               }
-              aria-hidden={!selected.size}
+              aria-hidden={
+                !selected.size
+              }
             >
-              <span className="font-display text-xl font-semibold tabular-nums">{selected.size}</span>
-              <span className="text-muted">selected</span>
+              <span className="font-display text-xl font-semibold tabular-nums">
+                {selected.size}
+              </span>
+
+              <span className="text-muted">
+                selected
+              </span>
+
               <span className="flex-1" />
-              <Btn variant="ghost" disabled={isRunning || !visible.length} onClick={selectAll}>Select all</Btn>
-              <Btn variant="ghost" disabled={isRunning || !selected.size} onClick={deselectAll}>Clear</Btn>
-              <Btn variant="primary" disabled={!selected.size || isRunning} onClick={installSelected}>
-                {selected.size ? `Install ${selected.size} ${selected.size === 1 ? "app" : "apps"}` : "Install"}
+
+              <Btn
+                variant="ghost"
+                disabled={
+                  isRunning ||
+                  !visible.length
+                }
+                onClick={
+                  selectAll
+                }
+              >
+                Select all
+              </Btn>
+
+              <Btn
+                variant="ghost"
+                disabled={
+                  isRunning ||
+                  !selected.size
+                }
+                onClick={
+                  deselectAll
+                }
+              >
+                Clear
+              </Btn>
+
+              <Btn
+                variant="primary"
+                disabled={
+                  !selected.size ||
+                  isRunning
+                }
+                onClick={
+                  installSelected
+                }
+              >
+                Install{" "}
+                {selected.size}{" "}
+                {selected.size ===
+                1
+                  ? "app"
+                  : "apps"}
               </Btn>
             </div>
           </Main>

@@ -26,4 +26,7 @@ contextBridge.exposeInMainWorld("api", {
   termOpen: () => ipcRenderer.invoke("term:open"),
   termAppend: (lines) => ipcRenderer.send("term:append", lines),
   termClear: () => ipcRenderer.send("term:clear"),
+
+  chocoReinstall: () => ipcRenderer.invoke("apps:chocoReinstall"),
+  chocoCheck: () => ipcRenderer.invoke("apps:chocoCheck"),
 });

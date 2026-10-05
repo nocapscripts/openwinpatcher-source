@@ -4,6 +4,7 @@ const { registerTerminal, openConsole, log, createSink } = require("./powerShell
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const { CreateLog } = require("./utils/logs");
 
 let win;
 
@@ -22,6 +23,14 @@ function createWindow() {
     console.error("Load failed:", code, desc, url);
     win.webContents.openDevTools({ mode: "detach" });
   });
+
+  if (!app.isPackaged) {
+     win.webContents.on('console-message', (...args) => {
+       const message = args[0]?.message ?? args[2]
+       console.log('[renderer]', message)
+     })
+   }
+
 }
 
 // One startup block: terminal IPC first, then the window, then the PowerShell window.
@@ -29,6 +38,7 @@ app.whenReady().then(() => {
   registerTerminal();
   createWindow();
   openConsole();
+  CreateLog("info", "UI Start success");
   setTimeout(() => win?.focus(), 400); // keep focus on the app, not the console
 });
 
@@ -81,6 +91,8 @@ function chocoPath() {
   return fs.existsSync(exe) ? exe : null;
 }
 
+
+
 const winget = (args, stream = true) => run("winget", args, { stream, options: { shell: true } });
 const choco = (exe, args, stream = true) => run(exe, args, { stream });
 
@@ -93,6 +105,8 @@ async function installWithWinget(a) {
 
 async function installWithChoco(a, exe) {
   log("", `PS> choco install ${a.choco} -y`);
+
+
   const r = await choco(exe, ["install", a.choco, "-y", "--no-progress"]);
   const ok = CHOCO_OK.has(r.code);
   if (!ok) log(`[ERROR] ${a.name} (Chocolatey) exited with code ${r.code}`);
@@ -218,4 +232,11 @@ ipcMain.handle("open:external", (_e, url) => {
   if (typeof url !== "string" || !url.startsWith("https://github.com/")) return false;
   shell.openExternal(url);
   return true;
+});
+
+
+
+ipcMain.handle("apps:chocoCheck", async () => {
+  const exe = chocoPath();
+  return !!exe;
 });
