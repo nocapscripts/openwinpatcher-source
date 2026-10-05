@@ -5,7 +5,7 @@ productName: OpenWinPatcher
 copyright: Copyright © 2026 Sten Pals
 artifactName: ${productName}-Setup-${version}.${ext}
 extraMetadata:
-    version: 1.0.3
+    version: 1.0.4
 directories:
   output: release/${version}
   buildResources: build

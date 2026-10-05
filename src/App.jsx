@@ -2172,7 +2172,7 @@ export default function App() {
               </Btn>
 
               <Btn
-                variant="danger"
+                variant="teal"
                 disabled={
                   isRunning
                 }

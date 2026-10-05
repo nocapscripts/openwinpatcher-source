@@ -118,6 +118,14 @@ const variants = {
     "hover:enabled:shadow-[0_0_20px_rgba(239,68,68,.18)] " +
     "active:enabled:scale-[.97] " +
     "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
+
+  teal:
+    "border-teal-500/40 bg-teal-500/10 text-teal-300 " +
+    "shadow-[0_0_14px_rgba(100,116,139,.06)] " +
+    "hover:enabled:border-teal-400/70 hover:enabled:bg-teal-500 hover:enabled:text-white " +
+    "hover:enabled:shadow-[0_0_20px_rgba(100,116,139,.18)] " +
+    "active:enabled:scale-[.97] " +
+    "disabled:border-line disabled:bg-panel disabled:text-faint disabled:shadow-none disabled:opacity-60",
 };
 
 export const Btn = ({ variant = "default", className, ...p }) => (
