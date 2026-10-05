@@ -2,5 +2,6 @@ node_modules/
 dist/
 release/
 pack/
+out/
 yarn.lock
 package-lock.json.bak
