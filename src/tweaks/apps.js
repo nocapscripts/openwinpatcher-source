@@ -1,101 +1,102 @@
-// Format per line: Name|Winget.Id|f   (f = FOSS)
+// Format per line: Name|Winget.Id|f|chocolatey-id
+// f = FOSS (leave empty if not). chocolatey-id is optional; without it the app is WinGet-only.
 const raw = {
-  Browsers: `Brave|Brave.Brave|f
-Chrome|Google.Chrome
-Chromium|Hibbiki.Chromium|f
-Edge|Microsoft.Edge
-Firefox|Mozilla.Firefox|f
-Firefox ESR|Mozilla.Firefox.ESR|f
-Floorp|Ablaze.Floorp|f
+  Browsers: `Brave|Brave.Brave|f|brave
+Chrome|Google.Chrome||googlechrome
+Chromium|Hibbiki.Chromium|f|chromium
+Edge|Microsoft.Edge||microsoft-edge
+Firefox|Mozilla.Firefox|f|firefox
+Firefox ESR|Mozilla.Firefox.ESR|f|firefoxesr
+Floorp|Ablaze.Floorp|f|floorp
 Helium|ImputNet.Helium|f
-LibreWolf|LibreWolf.LibreWolf|f
-Mullvad Browser|MullvadVPN.MullvadBrowser|f
-Tor Browser|TorProject.TorBrowser|f
-Ungoogled Chromium|eloston.ungoogled-chromium|f
-Vivaldi|Vivaldi.Vivaldi
-Waterfox|Waterfox.Waterfox|f
+LibreWolf|LibreWolf.LibreWolf|f|librewolf
+Mullvad Browser|MullvadVPN.MullvadBrowser|f|mullvad-browser
+Tor Browser|TorProject.TorBrowser|f|tor-browser
+Ungoogled Chromium|eloston.ungoogled-chromium|f|ungoogled-chromium
+Vivaldi|Vivaldi.Vivaldi||vivaldi
+Waterfox|Waterfox.Waterfox|f|waterfox
 Zen Browser|Zen-Team.Zen-Browser|f`,
   Communications: `Betterbird|Betterbird.Betterbird|f
-Chatterino|ChatterinoTeam.Chatterino|f
-Discord|Discord.Discord
+Chatterino|ChatterinoTeam.Chatterino|f|chatterino
+Discord|Discord.Discord||discord
 Dorion|SpikeHD.Dorion|f
-Element|Element.Element|f
-Proton Mail|Proton.ProtonMail|f
-QTox|Tox.qTox|f
-Signal|OpenWhisperSystems.Signal|f
-Slack|SlackTechnologies.Slack
-Teams|Microsoft.Teams
-TeamSpeak 3|TeamSpeakSystems.TeamSpeakClient
+Element|Element.Element|f|element-desktop
+Proton Mail|Proton.ProtonMail|f|protonmail
+QTox|Tox.qTox|f|qtox
+Signal|OpenWhisperSystems.Signal|f|signal
+Slack|SlackTechnologies.Slack||slack
+Teams|Microsoft.Teams||microsoft-teams
+TeamSpeak 3|TeamSpeakSystems.TeamSpeakClient||teamspeak
 TeamSpeak 6|TeamSpeakSystems.TeamSpeak6Client
-Telegram|Telegram.TelegramDesktop|f
-Thunderbird|Mozilla.Thunderbird|f
-Vesktop|Vencord.Vesktop|f
-Viber|Viber.Viber
-WhatsApp Desktop|WhatsApp.WhatsApp
-Zoom|Zoom.Zoom`,
-  Development: `Amazon Corretto 21 (LTS)|Amazon.Corretto.21.JDK|f
+Telegram|Telegram.TelegramDesktop|f|telegram
+Thunderbird|Mozilla.Thunderbird|f|thunderbird
+Vesktop|Vencord.Vesktop|f|vesktop
+Viber|Viber.Viber||viber
+WhatsApp Desktop|WhatsApp.WhatsApp||whatsapp
+Zoom|Zoom.Zoom||zoom`,
+  Development: `Amazon Corretto 21 (LTS)|Amazon.Corretto.21.JDK|f|corretto21jdk
 Amazon Corretto 25 (LTS)|Amazon.Corretto.25.JDK|f
-Amazon Corretto 8 (LTS)|Amazon.Corretto.8.JDK|f
-Bruno|Bruno.Bruno|f
+Amazon Corretto 8 (LTS)|Amazon.Corretto.8.JDK|f|corretto8jdk
+Bruno|Bruno.Bruno|f|bruno
 ChatGPT Desktop|OpenAI.ChatGPT
 Claude Code|Anthropic.ClaudeCode
 Claude Desktop|Anthropic.Claude
-CMake|Kitware.CMake|f
+CMake|Kitware.CMake|f|cmake
 Codex|OpenAI.Codex
 Cursor|Anysphere.Cursor
-Docker Desktop|Docker.DockerDesktop
-Fast Node Manager|Schniz.fnm|f
-Git|Git.Git|f
-Git Extensions|GitExtensionsTeam.GitExtensions|f
-GitHub CLI|GitHub.cli|f
-GitHub Desktop|GitHub.GitHubDesktop|f
-Go|GoLang.Go|f
-Jetbrains Toolbox|JetBrains.Toolbox
-Lazygit|JesseDuffield.lazygit|f
-Lua|DEVCOM.Lua|f
-Neovim|Neovim.Neovim|f
-NodeJS|OpenJS.NodeJS|f
-NodeJS LTS|OpenJS.NodeJS.LTS|f
-Oh My Posh (Prompt)|JanDeDobbeleer.OhMyPosh|f
-pnpm|pnpm.pnpm|f
-Postman|Postman.Postman
-Python3|Python.Python.3.12|f
-Ruby|RubyInstallerTeam.Ruby.3.4|f
-Rust|Rustlang.Rustup|f
-Starship (Shell Prompt)|Starship.Starship|f
-Sublime Text|SublimeHQ.SublimeText.4
+Docker Desktop|Docker.DockerDesktop||docker-desktop
+Fast Node Manager|Schniz.fnm|f|fnm
+Git|Git.Git|f|git
+Git Extensions|GitExtensionsTeam.GitExtensions|f|gitextensions
+GitHub CLI|GitHub.cli|f|gh
+GitHub Desktop|GitHub.GitHubDesktop|f|github-desktop
+Go|GoLang.Go|f|golang
+Jetbrains Toolbox|JetBrains.Toolbox||jetbrainstoolbox
+Lazygit|JesseDuffield.lazygit|f|lazygit
+Lua|DEVCOM.Lua|f|lua
+Neovim|Neovim.Neovim|f|neovim
+NodeJS|OpenJS.NodeJS|f|nodejs
+NodeJS LTS|OpenJS.NodeJS.LTS|f|nodejs-lts
+Oh My Posh (Prompt)|JanDeDobbeleer.OhMyPosh|f|oh-my-posh
+pnpm|pnpm.pnpm|f|pnpm
+Postman|Postman.Postman||postman
+Python3|Python.Python.3.12|f|python312
+Ruby|RubyInstallerTeam.Ruby.3.4|f|ruby
+Rust|Rustlang.Rustup|f|rustup.install
+Starship (Shell Prompt)|Starship.Starship|f|starship
+Sublime Text|SublimeHQ.SublimeText.4||sublimetext4
 System Informer|WinsiderSS.SystemInformer|f
-Unity Game Engine|Unity.UnityHub
-uv|astral-sh.uv|f
-Vagrant|Hashicorp.Vagrant|f
-Visual Studio 2022|Microsoft.VisualStudio.2022.Community
+Unity Game Engine|Unity.UnityHub||unityhub
+uv|astral-sh.uv|f|uv
+Vagrant|Hashicorp.Vagrant|f|vagrant
+Visual Studio 2022|Microsoft.VisualStudio.2022.Community||visualstudio2022community
 Visual Studio 2026|Microsoft.VisualStudio.Community
-VS Code|Microsoft.VisualStudioCode|f
-VS Codium|VSCodium.VSCodium|f
-Yarn|Yarn.Yarn|f
+VS Code|Microsoft.VisualStudioCode|f|vscode
+VS Codium|VSCodium.VSCodium|f|vscodium
+Yarn|Yarn.Yarn|f|yarn
 Zed|Zed.Zed|f`,
-  Document: `Adobe Acrobat Reader|Adobe.Acrobat.Reader.64-bit
-Foxit PDF Reader|Foxit.FoxitReader
-Joplin|Joplin.Joplin|f
-LibreOffice|TheDocumentFoundation.LibreOffice|f
-NAPS2 (Scanner)|Cyanfish.NAPS2|f
-Obsidian|Obsidian.Obsidian|f
-Okular|KDE.Okular|f
-ONLYOFFICE Desktop|ONLYOFFICE.DesktopEditors|f
-PDF-XChange Editor|TrackerSoftware.PDF-XChangeEditor
-PDF24 Creator|geeksoftwareGmbH.PDF24Creator
+  Document: `Adobe Acrobat Reader|Adobe.Acrobat.Reader.64-bit||adobereader
+Foxit PDF Reader|Foxit.FoxitReader||foxitreader
+Joplin|Joplin.Joplin|f|joplin
+LibreOffice|TheDocumentFoundation.LibreOffice|f|libreoffice-fresh
+NAPS2 (Scanner)|Cyanfish.NAPS2|f|naps2
+Obsidian|Obsidian.Obsidian|f|obsidian
+Okular|KDE.Okular|f|okular
+ONLYOFFICE Desktop|ONLYOFFICE.DesktopEditors|f|onlyoffice
+PDF-XChange Editor|TrackerSoftware.PDF-XChangeEditor||pdfxchangeeditor
+PDF24 Creator|geeksoftwareGmbH.PDF24Creator||pdf24
 PDFgear|PDFgear.PDFgear
-PDFsam Basic|PDFsam.PDFsam|f
-QOwnNotes|pbek.QOwnNotes|f
-Simplenote|Automattic.Simplenote|f
-Sumatra PDF|SumatraPDF.SumatraPDF|f
-Xournal++|Xournal++.Xournal++|f`,
+PDFsam Basic|PDFsam.PDFsam|f|pdfsam
+QOwnNotes|pbek.QOwnNotes|f|qownnotes
+Simplenote|Automattic.Simplenote|f|simplenote
+Sumatra PDF|SumatraPDF.SumatraPDF|f|sumatrapdf
+Xournal++|Xournal++.Xournal++|f|xournalplusplus`,
 };
 
 export const CATEGORIES = Object.keys(raw);
 export const APPS = CATEGORIES.flatMap((category) =>
   raw[category].split("\n").map((line) => {
-    const [name, id, f] = line.split("|");
-    return { name, id, category, foss: f === "f" };
+    const [name, id, f, choco] = line.split("|");
+    return { name, id, category, foss: f === "f", choco: choco || null };
   })
 );

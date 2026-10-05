@@ -1,6 +1,6 @@
 # OpenWinPatcher (OWP)
 
-A free, open-source Windows utility built with React. Install apps with winget and choco, apply privacy and performance tweaks, change Windows settings, and control Windows Update from one place.
+A free, open-source Windows utility built with React. Install apps with WinGet and Chocolatey, apply privacy and performance tweaks, change Windows settings, and control Windows Update from one place.
 
 ## Download
 
@@ -10,11 +10,11 @@ A free, open-source Windows utility built with React. Install apps with winget a
 | **All versions and patch notes** | [Releases](../../releases) |
 | **Report a problem** | [Open an issue](../../issues/new/choose) |
 
-1. Open the [latest release](../../releases/latest) and download the `.exe` under **Assets**.
+1. Open the [latest release](../../releases/latest) and download the `.exe` or `.msi` under **Assets**.
 2. Run the installer. It asks for administrator rights.
 3. Start OWP. A PowerShell window opens with it and shows everything the app runs.
 
-**Requirements:** Windows 10 or 11, [winget](https://learn.microsoft.com/windows/package-manager/) (App Installer), administrator rights, and an internet connection for installs and updates.
+**Requirements:** Windows 10 or 11, [winget](https://learn.microsoft.com/windows/package-manager/) (App Installer) and optionally [Chocolatey](https://chocolatey.org/), administrator rights, and an internet connection for installs and updates.
 
 ## Latest patches and fixes
 
@@ -51,19 +51,40 @@ Forks made in good faith, for learning or to contribute back, are welcome as lon
 
 Run your terminal as administrator, or tweaks will fail.
 
-## Build installer (Windows)
+## Build installers (Windows)
 
-    npm run build
+Packaging is done by [electron-builder](https://www.electron.build/) and configured in `electron-builder.yml`.
 
-The installer asks for administrator rights.
+    npm run build            # NSIS installer (.exe) + MSI (.msi)
+    npm run build:nsis       # NSIS installer only
+    npm run build:msi        # MSI only
+    npm run build:portable   # single-file portable .exe
+    npm run build:all        # NSIS + MSI + portable
+    npm run pack             # unpacked folder, quick smoke test
+
+Output goes to `release/<version>/`. MSI builds must run on Windows (electron-builder downloads the WiX toolset automatically). All builds ask for administrator rights.
+
+The UI is styled with [Tailwind CSS v4](https://tailwindcss.com/). Design tokens (colors, animations) live in the `@theme` block of `src/styles.css`.
 
 ## Pages
 
-- **Install**: winget app installer with search, filters, install, upgrade all, and detection of installed apps. Shortcuts: `Ctrl+F` focuses search, `Esc` clears it.
-- **Tweaks**: privacy and performance tweaks, each with an undo. Definitions are in `src/tweaks.js`.
+- **Install**: app installer with search, filters, install, upgrade all, and detection of installed apps. Pick the package manager in the toolbar (see below). Shortcuts: `Ctrl+F` focuses search, `Esc` clears it.
+- **Tweaks**: privacy and performance tweaks, each with an undo. Definitions are in `src/tweaks/tweaks.js`.
 - **Config**: Windows features, preference switches, fixes, and legacy control panels.
 - **Updates**: Default, Security (recommended) and Disabled update policies.
 - **Report**: send a bug report or feature request. It opens a pre-filled GitHub issue.
+
+## Package managers
+
+The **Package manager** dropdown on the Install page controls which tool is used:
+
+| Option | Behavior |
+|---|---|
+| **Auto (Recommended)** | Installs with WinGet. If an install fails and the app has a Chocolatey package, it retries with Chocolatey. |
+| **WinGet** | WinGet only. |
+| **Chocolatey** | Chocolatey only. Apps without a Chocolatey package are greyed out as "WinGet only". |
+
+If Chocolatey is not installed, choosing it shows an **Install Chocolatey** button that runs the [official install script](https://chocolatey.org/install). **Upgrade All** runs `winget upgrade --all`, `choco upgrade all -y`, or both (Auto). **Get Installed** checks both managers.
 
 ## PowerShell output
 
@@ -73,13 +94,14 @@ OWP opens a real PowerShell window with the app and prints every command and its
 
 - **"failed (run the app as administrator)"**: close OWP and start it again with *Run as administrator*.
 - **`winget` is not recognized**: install or update *App Installer* from the Microsoft Store, then restart OWP.
+- **"Chocolatey is not installed"**: select Chocolatey in the dropdown and click **Install Chocolatey**.
 - **An app fails to install**: read the red lines in the PowerShell window. Failed apps stay selected so you can retry them.
 
 ## Customizing
 
-- Add apps in `src/tweaks/apps.js` using the format `Name|Winget.Id|f` (`f` = FOSS).
-- Verify winget IDs with `winget search <name>`. A few (Helium, TeamSpeak 6, Claude, VS 2026) may need adjusting.
-- Add tweaks in `src/tweaks.js` with a name, an `apply` PowerShell string and an `undo` string.
+- Add apps in `src/tweaks/apps.js` using the format `Name|Winget.Id|f|choco-id` (`f` = FOSS, leave it empty if not; the Chocolatey id is optional, and without it the app is WinGet-only). Example: `Chrome|Google.Chrome||googlechrome`.
+- Verify winget IDs with `winget search <name>` and Chocolatey IDs with `choco search <name>`. A few (Helium, TeamSpeak 6, Claude, VS 2026) may need adjusting.
+- Add tweaks in `src/tweaks/tweaks.js` with a name, an `apply` PowerShell string and an `undo` string.
 
 ## Use at your own risk
 

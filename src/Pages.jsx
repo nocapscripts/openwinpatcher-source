@@ -1,77 +1,173 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { TWEAKS, FEATURES, PREFS, FIXES, PANELS, UPDATES } from "./tweaks/tweaks.js";
+import {
+  Btn, Checkbox, Grid, H1, H2, List, Note, Row, RowText, Scroll, Switch, Tile, Toolbar,
+} from "./components/ui.jsx";
 
-function Checklist({ items, run, actions }) {
+// Reads system state through the main process (reg/fs, no PowerShell) once on mount and again whenever refresh() is called.
+function useStatus(features = false) {
+  const [status, setStatus] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      setStatus(await window.api.getStatus({ features }));
+    } catch {
+      setStatus({});
+    }
+    setLoading(false);
+  }, [features]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  return { status, loading, refresh };
+}
+
+// Small pill shown on each row. Items with no check (undefined) show nothing.
+function Badge({ value }) {
+  if (value === undefined) return null;
+  return <span className={`badge ${value ? "badge-on" : "badge-off"}`}>{value ? "Applied" : "Not applied"}</span>;
+}
+
+function Checklist({ items, run, actions, status = {}, refresh }) {
   const [sel, setSel] = useState(new Set());
-  const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggle = (id) =>
+    setSel((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
   const chosen = () => items.filter((i) => sel.has(i.id));
+
+  const go = async (label, key) => {
+    await run(chosen().filter((i) => i[key]).map((i) => i[key]).join("\n"), label);
+    refresh?.(); // re-check so the badges update after the run finishes
+  };
+
   return (
     <>
-      <div className="toolbar">
+      <Toolbar>
         {actions.map(([label, key, danger]) => (
-          <button key={label} className={"btn" + (danger ? " danger" : "")} disabled={!sel.size}
-            onClick={() => run(chosen().filter((i) => i[key]).map((i) => i[key]).join("\n"), label)}>{label}</button>
+          <Btn key={label} variant={danger ? "danger" : "default"} disabled={!sel.size} onClick={() => go(label, key)}>
+            {label}
+          </Btn>
         ))}
-        <button className="btn" onClick={() => setSel(new Set(items.map((i) => i.id)))}>Select All</button>
-        <button className="btn" onClick={() => setSel(new Set())}>Deselect All</button>
-      </div>
-      <div className="list scroll">
+        <Btn onClick={() => setSel(new Set(items.map((i) => i.id)))}>Select All</Btn>
+        <Btn onClick={() => setSel(new Set())}>Deselect All</Btn>
+        {refresh && <Btn onClick={refresh}>Refresh Status</Btn>}
+      </Toolbar>
+
+      <List>
         {items.map((i) => (
-          <label key={i.id} className="row">
-            <input type="checkbox" checked={sel.has(i.id)} onChange={() => toggle(i.id)} />
-            <span><b>{i.name}</b>{i.desc && <small>{i.desc}</small>}</span>
-          </label>
+          <Row key={i.id}>
+            <Checkbox checked={sel.has(i.id)} onChange={() => toggle(i.id)} />
+            <RowText title={i.name} desc={i.desc} />
+            <Badge value={status[i.id]} />
+          </Row>
         ))}
-      </div>
+      </List>
     </>
   );
 }
 
 export function Tweaks({ run }) {
-  return (<><h1>Tweaks</h1><p className="note">Changes need admin rights. Create a restore point first.</p>
-    <Checklist items={TWEAKS} run={run} actions={[["Run Tweaks", "apply"], ["Undo Selected", "undo"]]} /></>);
+  const { status, loading, refresh } = useStatus(false);
+  return (
+    <>
+      <H1>Tweaks</H1>
+      <Note>
+        Changes need admin rights. Create a restore point first.
+        {loading && " Checking current state..."}
+      </Note>
+      <Scroll>
+        <Checklist
+          items={TWEAKS}
+          run={run}
+          status={status}
+          refresh={refresh}
+          actions={[["Run Tweaks", "apply"], ["Undo Selected", "undo"]]}
+        />
+      </Scroll>
+    </>
+  );
 }
 
-function Switches({ run }) {
+function Switches({ run, status, refresh }) {
   const [on, setOn] = useState({});
   return (
-    <div className="list">
+    <List>
       {PREFS.map((p) => (
-        <label key={p.id} className="row">
-          <input type="checkbox" className="switch" checked={!!on[p.id]}
-            onChange={(e) => { setOn({ ...on, [p.id]: e.target.checked }); run(e.target.checked ? p.on : p.off, p.name); }} />
-          <span><b>{p.name}</b></span>
-        </label>
+        <Row key={p.id}>
+          <Switch
+            // real system state wins; local state covers the moment before the re-check finishes
+            checked={status[p.id] ?? !!on[p.id]}
+            onChange={async (e) => {
+              const v = e.target.checked;
+              setOn({ ...on, [p.id]: v });
+              await run(v ? p.on : p.off, p.name);
+              refresh();
+            }}
+          />
+          <RowText title={p.name} />
+        </Row>
       ))}
-    </div>
+    </List>
   );
 }
 
 export function Config({ run }) {
+  const { status, refresh } = useStatus(true); // true = also check Windows features
+
   return (
-    <div className="scroll">
-      <h1>Config</h1>
-      <h2>Features</h2>
-      <Checklist items={FEATURES} run={run} actions={[["Install Features", "apply"]]} />
-      <h2>Customize Preferences</h2>
-      <Switches run={run} />
-      <h2>Fixes</h2>
-      <div className="grid">{FIXES.map((f) => (
-        <button key={f.name} className="tile col" onClick={() => run(f.run, f.name)}><b>{f.name}</b><small>{f.desc}</small></button>))}</div>
-      <h2>Legacy Windows Panels</h2>
-      <div className="grid">{PANELS.map((p) => (
-        <button key={p.name} className="tile" onClick={() => run(p.run, p.name)}><b>{p.name}</b></button>))}</div>
-    </div>
+    <Scroll>
+      <H1>Config</H1>
+      <H2>Features</H2>
+      <Checklist items={FEATURES} run={run} actions={[["Install Features", "apply"]]} status={status} refresh={refresh} />
+
+      <H2>Customize Preferences</H2>
+      <Switches run={run} status={status} refresh={refresh} />
+
+      <H2>Fixes</H2>
+      <Grid>
+        {FIXES.map((f) => (
+          <Tile key={f.name} col onClick={() => run(f.run, f.name)}>
+            <b>{f.name}</b>
+            <small className="text-xs text-muted">{f.desc}</small>
+          </Tile>
+        ))}
+      </Grid>
+
+      <H2>Legacy Windows Panels</H2>
+      <Grid>
+        {PANELS.map((p) => (
+          <Tile key={p.name} onClick={() => run(p.run, p.name)}>
+            <b>{p.name}</b>
+          </Tile>
+        ))}
+      </Grid>
+    </Scroll>
   );
 }
 
 export function Updates({ run }) {
   return (
     <>
-      <h1>Updates</h1>
-      <div className="toolbar"><button className="btn" onClick={() => run("Start-Process ms-settings:windowsupdate", "Open Windows Update")}>Open Windows Update</button></div>
-      <div className="grid wide">{UPDATES.map((u) => (
-        <button key={u.name} className={"tile col" + (u.danger ? " bad" : "")} onClick={() => run(u.run, u.name)}><b>{u.name}</b><small>{u.desc}</small></button>))}</div>
+      <H1>Updates</H1>
+      <Toolbar>
+        <Btn onClick={() => run("Start-Process ms-settings:windowsupdate", "Open Windows Update")}>
+          Open Windows Update
+        </Btn>
+      </Toolbar>
+      <Grid wide>
+        {UPDATES.map((u) => (
+          <Tile key={u.name} col bad={u.danger} onClick={() => run(u.run, u.name)}>
+            <b>{u.name}</b>
+            <small className="text-xs text-muted">{u.desc}</small>
+          </Tile>
+        ))}
+      </Grid>
     </>
   );
 }

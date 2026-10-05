@@ -1,0 +1,77 @@
+
+
+appId: dev.local.openwinpatcher
+productName: OpenWinPatcher
+copyright: Copyright © 2026 Sten Pals
+artifactName: ${productName}-Setup-${version}.${ext}
+extraMetadata:
+    version: 1.0.3
+directories:
+  output: release/${version}
+  buildResources: build
+
+# Only ship the compiled UI, the Electron main process and the icon.
+files:
+  - dist/**
+  - electron/**
+  - build/icon.ico
+  - package.json
+
+asar: true
+compression: normal          # use "maximum" for smaller release builds
+npmRebuild: false            # no native modules
+electronLanguages: [en-US]   # drops ~50 unused Chromium locale packs
+publish: null                # never auto-publish; upload releases yourself
+
+# ------------------------------------------------------------------
+# Windows
+# ------------------------------------------------------------------
+win:
+  target:
+    - { target: nsis,     arch: [x64] }
+    - { target: msi,      arch: [x64] }
+  icon: build/icon.ico
+  # The app edits the registry and services, so it always needs admin rights.
+  requestedExecutionLevel: requireAdministrator
+  legalTrademarks: OpenWinPatcher
+
+# ------------------------------------------------------------------
+# NSIS installer (.exe)
+# ------------------------------------------------------------------
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: OpenWinPatcher
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+# ------------------------------------------------------------------
+# MSI installer (.msi, built with WiX)
+# ------------------------------------------------------------------
+msi:
+  oneClick: false
+  perMachine: true
+  # Same UpgradeCode as the old wix/Package.wxs, so this MSI upgrades
+  # installs made with the previous packaging.
+  upgradeCode: cbad8f5c-3a0d-4ea7-a74d-96d90498646f
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OpenWinPatcher
+  runAfterFinish: false
+  warningsAsErrors: false
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+# ------------------------------------------------------------------
+# Portable single-file .exe (no install)
+# ------------------------------------------------------------------
+portable:
+  requestExecutionLevel: admin
+  artifactName: ${productName}-Portable-${version}.${ext}

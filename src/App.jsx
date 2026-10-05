@@ -1,34 +1,11 @@
-import React, {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  Menu,
-  Package,
-  Wrench,
-  Settings,
-  Bug,
-  RefreshCw,
-  Search,
-  ChevronDown,
-  Minus,
-  Square,
-  X,
-  Check,
-  SquareTerminal,
-} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 
 import { APPS, CATEGORIES } from "./tweaks/apps.js";
 import Report from "./Report.jsx";
 import { Tweaks, Config, Updates } from "./Pages.jsx";
-
-/* ------------------------------------------------------------------ */
-/* Setup                                                               */
-/* ------------------------------------------------------------------ */
+import { AppTile, ProgressPanel, Rail, TitleBar } from "./components/Shell.jsx";
+import { Btn, H1, H2, Main, Scroll, Select, Toolbar } from "./components/ui.jsx";
 
 // Browser fallback so the UI can be previewed without Electron
 const api = window.api ?? {
@@ -40,177 +17,26 @@ const api = window.api ?? {
   install: async () => [],
   upgradeAll: async () => true,
   installed: async () => [],
+  pmStatus: async () => ({ winget: true, choco: false }),
 };
 
-const ALL_IDS = APPS.map((a) => a.id);
+// UI label -> value understood by the Electron main process
+const MANAGERS = {
+  "Auto (Recommended)": "auto", // WinGet first, Chocolatey as fallback
+  WinGet: "winget",
+  Chocolatey: "choco",
+};
 
-const TABS = [
-  ["install", Package, "Install"],
-  ["tweaks", Wrench, "Tweaks"],
-  ["config", Settings, "Config"],
-  ["updates", RefreshCw, "Updates"],
-  ["report", Bug, "Report"],
-];
+const APP_REFS = APPS.map(({ id, choco }) => ({ id, choco }));
+const BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
 
-const hue = (s) =>
-  [...s].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+const CHOCO_INSTALL_SCRIPT =
+  "Set-ExecutionPolicy Bypass -Scope Process -Force; " +
+  "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; " +
+  "iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))";
 
 const clamp = (n) => Math.min(100, Math.max(0, n));
 const errorMessage = (e) => e?.message || String(e);
-
-/* ------------------------------------------------------------------ */
-/* Small components                                                    */
-/* ------------------------------------------------------------------ */
-
-function TitleBar({ title }) {
-  return (
-    <header className="titlebar">
-      <span className="title">{title}</span>
-
-      <div className="win-btns">
-        <button onClick={api.min} title="Minimize" aria-label="Minimize">
-          <Minus size={14} />
-        </button>
-        <button onClick={api.max} title="Maximize" aria-label="Maximize">
-          <Square size={12} />
-        </button>
-        <button onClick={api.close} title="Close" aria-label="Close">
-          <X size={15} />
-        </button>
-      </div>
-    </header>
-  );
-}
-
-function Rail({ tab, onTab, selectedCount }) {
-  return (
-    <nav className="rail" aria-label="Sections">
-      <Menu size={18} />
-
-      {TABS.map(([id, Icon, title]) => (
-        <button
-          key={id}
-          title={title}
-          aria-label={title}
-          aria-current={tab === id ? "page" : undefined}
-          className={tab === id ? "active" : ""}
-          onClick={() => onTab(id)}
-        >
-          <Icon size={18} />
-
-          {id === "install" && selectedCount > 0 && (
-            <span className="badge" key={selectedCount}>
-              {selectedCount}
-            </span>
-          )}
-        </button>
-      ))}
-    </nav>
-  );
-}
-
-function Select({ value, onChange, options, label }) {
-  return (
-    <label className="select">
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o}>{o}</option>
-        ))}
-      </select>
-
-      <ChevronDown size={14} />
-    </label>
-  );
-}
-
-const AppTile = memo(function AppTile({
-  app,
-  checked,
-  installed,
-  onToggle,
-  disabled,
-}) {
-  return (
-    <button
-      className={"tile" + (checked ? " on" : "")}
-      aria-pressed={checked}
-      onClick={() => onToggle(app.id)}
-      disabled={disabled}
-    >
-      <span
-        className="icon"
-        style={{ background: `hsl(${hue(app.name)} 55% 45%)` }}
-      >
-        {app.name[0]}
-      </span>
-
-      <span className="label">
-        <span className="name">{app.name}</span>
-        {app.foss && <span className="tag">FOSS</span>}
-      </span>
-
-      {installed && <Check size={14} className="ok" aria-label="Installed" />}
-    </button>
-  );
-});
-
-function ProgressPanel({ running, error, label, progress, status, onOpenTerminal }) {
-  const pct = clamp(progress);
-
-  return (
-    <div
-      className={
-        "progress-panel" + (running ? " is-running" : "") + (error ? " is-error" : "")
-      }
-      role="status"
-      aria-live="polite"
-    >
-      <div className="progress-header">
-        <div className="progress-title">
-          {running && <span className="progress-spinner" />}
-          <span>{label || "Ready"}</span>
-        </div>
-
-        <div className="progress-actions">
-          <button
-            className="progress-term"
-            onClick={onOpenTerminal}
-            title="Show the PowerShell output window"
-          >
-            <SquareTerminal size={13} />
-            Terminal
-            {running && <span className="live-dot" />}
-          </button>
-
-          <strong>{Math.round(pct)}%</strong>
-        </div>
-      </div>
-
-      <div
-        className="progress-track"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(pct)}
-      >
-        <div className="progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-
-      <div className="progress-footer">
-        <span>{status || "Waiting for operation"}</span>
-        <span>{running ? "Running" : error ? "Failed" : "Idle"}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* App                                                                 */
-/* ------------------------------------------------------------------ */
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -222,6 +48,7 @@ export default function App() {
   const [installed, setInstalled] = useState(new Set());
 
   const [sys, setSys] = useState(null);
+  const [pm, setPm] = useState({ winget: true, choco: false });
   const [status, setStatus] = useState("");
   const [tab, setTab] = useState("install");
 
@@ -233,10 +60,31 @@ export default function App() {
 
   const searchRef = useRef(null);
 
-  /* ---------------- system info ---------------- */
+  const mode = MANAGERS[manager];
+  // With Chocolatey selected, apps without a Chocolatey package can't be installed
+  const available = useCallback((a) => mode !== "choco" || !!a.choco, [mode]);
+
+  /* ---------------- system info + package managers ---------------- */
+  const refreshPm = useCallback(async () => {
+    try {
+      setPm(await api.pmStatus());
+    } catch {
+      /* keep the previous value */
+    }
+  }, []);
+
   useEffect(() => {
     window.api?.sysInfo?.().then(setSys);
-  }, []);
+    refreshPm();
+  }, [refreshPm]);
+
+  // drop selected apps that the chosen manager can't install
+  useEffect(() => {
+    setSelected((cur) => {
+      const next = new Set([...cur].filter((id) => available(BY_ID[id])));
+      return next.size === cur.size ? cur : next;
+    });
+  }, [available]);
 
   /* ---------------- keyboard shortcuts ----------------
    * Ctrl+F focuses search, Esc clears it while focused.
@@ -315,7 +163,7 @@ export default function App() {
 
   const refreshInstalled = async () => {
     try {
-      setInstalled(new Set(await api.installed(ALL_IDS)));
+      setInstalled(new Set(await api.installed(APP_REFS)));
     } catch {
       // the operation itself succeeded, so don't overwrite the status
     }
@@ -342,7 +190,7 @@ export default function App() {
     });
   }, []);
 
-  const selectAll = () => setSelected(new Set(visible.map((a) => a.id)));
+  const selectAll = () => setSelected(new Set(visible.filter(available).map((a) => a.id)));
   const deselectAll = () => setSelected(new Set());
 
   /* ---------------- actions ---------------- */
@@ -378,7 +226,7 @@ export default function App() {
     begin("Checking installed apps");
 
     try {
-      const result = await api.installed(ALL_IDS);
+      const result = await api.installed(APP_REFS);
       setInstalled(new Set(result));
       setProgress(100);
       setStatus("Installed apps checked");
@@ -393,13 +241,13 @@ export default function App() {
   };
 
   const installSelected = async () => {
-    const apps = APPS.filter((a) => selected.has(a.id));
+    const apps = APPS.filter((a) => selected.has(a.id) && available(a));
     if (!apps.length || isRunning) return;
 
     begin("Installing applications", ["PS> Starting installation...", ""]);
 
     try {
-      const results = await api.install(apps);
+      const results = await api.install(apps, mode);
       const failed = (Array.isArray(results) ? results : []).filter((r) => !r.ok);
 
       setProgress(100);
@@ -431,13 +279,19 @@ export default function App() {
     }
   };
 
+  const installChocolatey = async () => {
+    const result = await runPs(CHOCO_INSTALL_SCRIPT, "Install Chocolatey");
+    await refreshPm();
+    return result;
+  };
+
   const upgradeAll = async () => {
     if (isRunning) return;
 
     begin("Upgrading applications", ["PS> Starting upgrade...", ""]);
 
     try {
-      const result = await api.upgradeAll();
+      const result = await api.upgradeAll(mode);
       if (result === false) throw new Error("Upgrade operation failed");
 
       setProgress(100);
@@ -461,138 +315,70 @@ export default function App() {
     .filter(([, items]) => items.length > 0);
 
   const effectiveManager =
-    manager === "Auto (Recommended)" ? "WinGet" : manager;
+    mode === "auto" ? "WinGet, then Chocolatey" : manager;
+  const needChoco = mode === "choco" && !pm.choco;
 
   /* ---------------- render ---------------- */
   return (
-    <div className="app">
-      <TitleBar
-        title={
-          sys ? `Open Windows Patcher - ${sys.app}` : "Open Windows Patcher"
-        }
-      />
+    <div className="flex h-full flex-col">
+      <TitleBar api={api} title={sys ? `Open Windows Patcher - ${sys.app}` : "Open Windows Patcher"} />
 
-      <div className="body">
-        <Rail tab={tab} onTab={setTab} selectedCount={selected.size} />
+      <div className="flex min-h-0 flex-1">
+        <Rail
+          tab={tab}
+          onTab={setTab}
+          selectedCount={selected.size}
+          installedCount={installed.size}
+          manager={`Installing with ${effectiveManager}`}
+        />
 
-        {tab === "tweaks" && (
-          <main>
-            <Tweaks run={runPs} />
-          </main>
-        )}
-
-        {tab === "config" && (
-          <main>
-            <Config run={runPs} />
-          </main>
-        )}
-
-        {tab === "updates" && (
-          <main>
-            <Updates run={runPs} />
-          </main>
-        )}
-
-        {tab === "report" && (
-          <main>
-            <Report lastStatus={status} />
-          </main>
-        )}
+        {tab === "tweaks" && <Main><Tweaks run={runPs} /></Main>}
+        {tab === "config" && <Main><Config run={runPs} /></Main>}
+        {tab === "updates" && <Main><Updates run={runPs} /></Main>}
+        {tab === "report" && <Main><Report lastStatus={status} /></Main>}
 
         {tab === "install" && (
-          <main>
-            <h1>Applications</h1>
+          <Main>
+            <H1 aside={`${visible.length} packages`}>Apps</H1>
 
-            <div className="toolbar">
-              <label className="search">
-                <Search size={14} />
-
+            <Toolbar>
+              <label className="flex h-9 w-[260px] items-center gap-2 rounded-lg border border-line-2 bg-panel px-3 text-muted transition duration-150 hover:border-faint focus-within:border-accent/60 focus-within:bg-panel-2 focus-within:text-accent focus-within:shadow-[0_0_0_3px_rgba(95,208,230,.14)]">
+                <Search size={15} />
                 <input
                   ref={searchRef}
-                  placeholder="Search packages…  (Ctrl+F)"
+                  className="min-w-0 flex-1 bg-transparent text-text outline-none placeholder:text-faint disabled:opacity-60"
+                  placeholder="Search packages (Ctrl+F)"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Escape" && setQuery("")}
                   disabled={isRunning}
                 />
-
                 {query && !isRunning && (
                   <button
                     type="button"
-                    className="search-clear"
                     onClick={() => setQuery("")}
                     aria-label="Clear search"
+                    className="grid size-5 flex-none place-items-center rounded-full text-muted transition hover:bg-white/10 hover:text-text"
                   >
                     <X size={12} />
                   </button>
                 )}
               </label>
 
-              <Select
-                label="Category"
-                value={category}
-                onChange={setCategory}
-                options={["All categories", ...CATEGORIES]}
-              />
+              <Select label="Category" value={category} onChange={setCategory} options={["All categories", ...CATEGORIES]} />
+              <Select label="Package manager" value={manager} onChange={setManager} options={Object.keys(MANAGERS)} />
+              <Select label="Audience" value={audience} onChange={setAudience} options={["Everyone", "FOSS only"]} />
 
-              <Select
-                label="Package manager"
-                value={manager}
-                onChange={setManager}
-                options={["Auto (Recommended)", "WinGet"]}
-              />
+              <span className="flex-1" />
 
-              <Select
-                label="Audience"
-                value={audience}
-                onChange={setAudience}
-                options={["Everyone", "FOSS only"]}
-              />
-
-              <span className="spacer" />
-
-              <button
-                className="btn primary"
-                disabled={!selected.size || isRunning}
-                onClick={installSelected}
-              >
-                {selected.size
-                  ? `Install Selected (${selected.size})`
-                  : "Install Selected"}
-              </button>
-
-              <button
-                className="btn danger"
-                disabled={isRunning}
-                onClick={upgradeAll}
-              >
-                Upgrade All
-              </button>
-
-              <button
-                className="btn"
-                disabled={isRunning}
-                onClick={getInstalled}
-              >
-                Get Installed
-              </button>
-
-              <button
-                className="btn"
-                disabled={isRunning || !visible.length}
-                onClick={selectAll}
-              >
-                Select All
-              </button>
-
-              <button
-                className="btn"
-                disabled={isRunning || !selected.size}
-                onClick={deselectAll}
-              >
-                Deselect All
-              </button>
-            </div>
+              {needChoco && (
+                <Btn disabled={isRunning} onClick={installChocolatey} title="Installs Chocolatey with the official script">
+                  Install Chocolatey
+                </Btn>
+              )}
+              <Btn variant="ghost" disabled={isRunning} onClick={getInstalled}>Check installed</Btn>
+              <Btn variant="danger" disabled={isRunning} onClick={upgradeAll}>Upgrade all</Btn>
+            </Toolbar>
 
             <ProgressPanel
               running={isRunning}
@@ -600,27 +386,19 @@ export default function App() {
               label={progressLabel}
               progress={progress}
               status={status}
-              onOpenTerminal={() => api.termOpen?.()}
             />
 
-            <div className="scroll">
+            <Scroll>
               {sections.length === 0 ? (
-                <div className="empty">
-                  <strong>No packages found</strong>
-                  <span>
-                    Try a different search, or switch the category or audience
-                    filter.
-                  </span>
+                <div className="flex flex-col items-center gap-1.5 px-4 py-14 text-center text-muted">
+                  <strong className="text-base font-semibold text-text">No packages found</strong>
+                  <span>Try a different search, or switch the category or audience filter.</span>
                 </div>
               ) : (
                 sections.map(([cat, items]) => (
                   <section key={cat}>
-                    <h2>
-                      {cat}
-                      <span className="count">{items.length}</span>
-                    </h2>
-
-                    <div className="grid">
+                    <H2 count={items.length}>{cat}</H2>
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2.5">
                       {items.map((a) => (
                         <AppTile
                           key={a.id}
@@ -628,6 +406,7 @@ export default function App() {
                           checked={selected.has(a.id)}
                           installed={installed.has(a.id)}
                           disabled={isRunning}
+                          unavailable={!available(a)}
                           onToggle={toggle}
                         />
                       ))}
@@ -635,29 +414,27 @@ export default function App() {
                   </section>
                 ))
               )}
+            </Scroll>
+
+            <div
+              className={
+                "mb-4 flex flex-none items-center gap-3 rounded-[14px] border border-line-2 bg-panel-2 px-4 py-3 shadow-[0_18px_40px_-20px_rgba(0,0,0,.9)] transition-all duration-300 ease-out-expo " +
+                (selected.size ? "mt-3 translate-y-0 opacity-100" : "pointer-events-none mt-0 h-0 translate-y-3 overflow-hidden border-transparent py-0 opacity-0")
+              }
+              aria-hidden={!selected.size}
+            >
+              <span className="font-display text-xl font-semibold tabular-nums">{selected.size}</span>
+              <span className="text-muted">selected</span>
+              <span className="flex-1" />
+              <Btn variant="ghost" disabled={isRunning || !visible.length} onClick={selectAll}>Select all</Btn>
+              <Btn variant="ghost" disabled={isRunning || !selected.size} onClick={deselectAll}>Clear</Btn>
+              <Btn variant="primary" disabled={!selected.size || isRunning} onClick={installSelected}>
+                {selected.size ? `Install ${selected.size} ${selected.size === 1 ? "app" : "apps"}` : "Install"}
+              </Btn>
             </div>
-          </main>
+          </Main>
         )}
       </div>
-
-      <footer className="statusbar">
-        <span>
-          Selected: <b>{selected.size}</b>
-          {"  "}
-          Installed: <b>{installed.size}</b>
-          {"  "}
-          Manager: <b>{effectiveManager}</b>
-        </span>
-
-        <span>
-          {isRunning && (
-            <>
-              <span className="status-spinner" />{" "}
-            </>
-          )}
-          {status}
-        </span>
-      </footer>
     </div>
   );
 }

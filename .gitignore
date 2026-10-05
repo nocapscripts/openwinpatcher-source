@@ -1,11 +1,6 @@
 node_modules/
-node_modules
-yarn.lock
-build/
-build
-release/
-release
-pack/
-pack
 dist/
-dist
+release/
+pack/
+yarn.lock
+package-lock.json.bak
