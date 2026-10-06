@@ -172,3 +172,127 @@ export function ProgressPanel({ running, error, label, progress, status }) {
     </div>
   );
 }
+
+
+
+
+
+export function StandardProgress({ running, error, label, progress, status }) {
+  const pct = clamp(progress);
+  const done = !running && !error && pct >= 100;
+
+  return (
+    <div role="status" aria-live="polite" className="my-4 w-full">
+      <div className="mb-2 flex items-baseline justify-between gap-4">
+        <span className="min-w-0 truncate text-sm font-medium">{label || "Ready"}</span>
+        <span
+          className={cx(
+            "flex-none text-sm font-semibold tabular-nums transition-colors duration-300",
+            error ? "text-danger-strong" : running || done ? "text-accent" : "text-faint"
+          )}
+        >
+          {Math.round(pct)}%
+        </span>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-label={label || "Progress"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        className="relative h-2.5 w-full overflow-hidden rounded-full bg-white/8"
+      >
+        <div
+          style={{ width: `${pct}%` }}
+          className={cx(
+            "relative h-full rounded-full transition-[width,background-color,box-shadow] duration-500 ease-out-expo",
+            error
+              ? "bg-danger shadow-[0_0_12px_-2px] shadow-danger/60"
+              : running
+                ? "progress-stripes min-w-2.5 shadow-[0_0_12px_-2px] shadow-accent/60"
+                : "bg-accent-strong"
+          )}
+        >
+          {/* soft highlight on top edge for a glossy look */}
+          <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 rounded-full bg-white/20" />
+        </div>
+      </div>
+
+      <p className={cx("mt-2 truncate text-xs", error ? "text-danger-strong" : "text-muted")}>
+        {status || "Waiting for operation"}
+      </p>
+    </div>
+  );
+}
+
+
+
+export function TweaksProgress({ running, error, label, progress, status }) {
+  const pct = clamp(progress);
+  const done = !running && !error && pct >= 100;
+
+  const state = error ? "Failed" : running ? "Running" : done ? "Done" : "Idle";
+
+  const dot = error
+    ? "bg-danger"
+    : running
+      ? "bg-accent animate-pulse"
+      : done
+        ? "bg-accent-strong"
+        : "bg-faint";
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={cx(
+        "mt-3 mb-4 flex-none overflow-hidden rounded-xl border bg-panel transition-colors duration-300",
+        error ? "border-danger/40" : running ? "border-accent/30" : "border-line"
+      )}
+    >
+      {/* Edge-to-edge bar */}
+      <div
+        role="progressbar"
+        aria-label={label || "Progress"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        className="h-1 w-full bg-white/6"
+      >
+        <div
+          style={{ width: `${pct}%` }}
+          className={cx(
+            "h-full transition-[width,background-color] duration-500 ease-out-expo",
+            error ? "bg-danger" : running ? "progress-stripes min-w-1.5" : "bg-accent-strong"
+          )}
+        />
+      </div>
+
+      <div className="flex items-center gap-3 px-4 py-2.5">
+        <span className={cx("size-2 flex-none rounded-full", dot)} aria-hidden />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-sm font-medium">{label || "Ready"}</span>
+            <span
+              className={cx(
+                "flex-none text-[11px] font-medium tracking-wide uppercase",
+                error ? "text-danger-strong" : running || done ? "text-accent" : "text-faint"
+              )}
+            >
+              {state}
+            </span>
+          </div>
+          <p className={cx("truncate text-xs", error ? "text-danger-strong" : "text-muted")}>
+            {status || "Waiting for operation"}
+          </p>
+        </div>
+
+        <strong className="flex-none font-display text-lg leading-none font-semibold tabular-nums">
+          {Math.round(pct)}%
+        </strong>
+      </div>
+    </div>
+  );
+}

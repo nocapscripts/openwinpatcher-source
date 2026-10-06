@@ -1,4 +1,3 @@
-
 import React, {
   useCallback,
   useEffect,
@@ -15,6 +14,7 @@ import { Tweaks, Config, Updates } from "./Pages.jsx";
 import {
   AppTile,
   ProgressPanel,
+  TweaksProgress,
   Rail,
   TitleBar,
 } from "./components/Shell.jsx";
@@ -82,6 +82,21 @@ const APP_REFS = APPS.map(({ id, choco }) => ({
 const BY_ID = Object.fromEntries(
   APPS.map((app) => [app.id, app])
 );
+
+/* =========================================================
+ * PROGRESS CHANNELS
+ *
+ * "apps"   -> Apps tab (installs, upgrades, package managers)
+ * "tweaks" -> Tweaks / Config / Updates tabs (runPs)
+ * ========================================================= */
+
+const IDLE = {
+  running: false,
+  error: false,
+  label: "Ready",
+  progress: 0,
+  status: "",
+};
 
 /* =========================================================
  * POWERSHELL SCRIPTS
@@ -297,21 +312,6 @@ export default function App() {
   const [tab, setTab] =
     useState("install");
 
-  const [status, setStatus] =
-    useState("");
-
-  const [progress, setProgress] =
-    useState(0);
-
-  const [progressLabel, setProgressLabel] =
-    useState("Ready");
-
-  const [isRunning, setIsRunning] =
-    useState(false);
-
-  const [hasError, setHasError] =
-    useState(false);
-
   const searchRef =
     useRef(null);
 
@@ -320,9 +320,79 @@ export default function App() {
    *
    * React state can be stale inside async callbacks,
    * so this ref is the authoritative source.
+   *
+   * It is shared by both progress channels, so an
+   * install and a tweak can never run at the same time.
    */
   const operationRef =
     useRef(false);
+
+  /* =======================================================
+   * PROGRESS STATE (separate channel per tab)
+   *
+   * The setters below write to whichever channel owns the
+   * current operation (scopeRef), so existing
+   * setProgress / setStatus / ... calls keep working.
+   * ======================================================= */
+
+  const [prog, setProg] = useState({
+    apps: IDLE,
+    tweaks: IDLE,
+  });
+
+  const scopeRef =
+    useRef("apps");
+
+  const patch = useCallback(
+    (changes) => {
+      const scope =
+        scopeRef.current;
+
+      setProg((current) => ({
+        ...current,
+        [scope]: {
+          ...current[scope],
+          ...changes,
+        },
+      }));
+    },
+    []
+  );
+
+  const setProgress = useCallback(
+    (progress) => patch({ progress }),
+    [patch]
+  );
+
+  const setProgressLabel = useCallback(
+    (label) => patch({ label }),
+    [patch]
+  );
+
+  const setStatus = useCallback(
+    (status) => patch({ status }),
+    [patch]
+  );
+
+  const setHasError = useCallback(
+    (error) => patch({ error }),
+    [patch]
+  );
+
+  const setIsRunning = useCallback(
+    (running) => patch({ running }),
+    [patch]
+  );
+
+  const appsProg = prog.apps;
+  const tweaksProg = prog.tweaks;
+
+  /*
+   * Global lock flag, used to disable buttons on every tab.
+   */
+  const isRunning =
+    appsProg.running ||
+    tweaksProg.running;
 
   /* =======================================================
    * PACKAGE MANAGER MODE
@@ -386,12 +456,13 @@ export default function App() {
    * ======================================================= */
 
   const startOperation = useCallback(
-    (label, logLines = []) => {
+    (label, logLines = [], scope = "apps") => {
       if (operationRef.current) {
         return false;
       }
 
       operationRef.current = true;
+      scopeRef.current = scope;
 
       setIsRunning(true);
       setHasError(false);
@@ -409,7 +480,15 @@ export default function App() {
 
       return true;
     },
-    [appendLog, clearLog]
+    [
+      appendLog,
+      clearLog,
+      setHasError,
+      setIsRunning,
+      setProgress,
+      setProgressLabel,
+      setStatus,
+    ]
   );
 
   const finishOperation = useCallback(
@@ -431,7 +510,12 @@ export default function App() {
       operationRef.current = false;
       setIsRunning(false);
     },
-    []
+    [
+      setIsRunning,
+      setProgress,
+      setProgressLabel,
+      setStatus,
+    ]
   );
 
   const failOperation = useCallback(
@@ -455,7 +539,13 @@ export default function App() {
         error: message,
       };
     },
-    [logError]
+    [
+      logError,
+      setHasError,
+      setIsRunning,
+      setProgressLabel,
+      setStatus,
+    ]
   );
 
   /* =======================================================
@@ -754,7 +844,8 @@ export default function App() {
   /* =======================================================
    * PROGRESS EVENTS
    *
-   * These ONLY update UI.
+   * These ONLY update UI (on the channel that owns the
+   * current operation).
    *
    * They NEVER finish operations.
    * ======================================================= */
@@ -807,19 +898,26 @@ export default function App() {
       "function"
       ? cleanup
       : undefined;
-  }, []);
+  }, [
+    setProgress,
+    setProgressLabel,
+    setStatus,
+  ]);
 
   /* =======================================================
    * GENERIC POWERSHELL ACTION
    *
    * Used by Tweaks / Config / Updates.
+   * Reports into the "tweaks" progress channel.
    * ======================================================= */
 
   const runPs = useCallback(
     async (script, label) => {
       if (
         !startOperation(
-          label
+          label,
+          [],
+          "tweaks"
         )
       ) {
         return {
@@ -945,6 +1043,9 @@ export default function App() {
       failOperation,
       finishOperation,
       refreshPm,
+      setProgress,
+      setProgressLabel,
+      setStatus,
       startOperation,
     ]);
 
@@ -1004,6 +1105,9 @@ export default function App() {
     }, [
       appendLog,
       executePs,
+      setProgress,
+      setProgressLabel,
+      setStatus,
     ]);
 
   /* =======================================================
@@ -1191,6 +1295,9 @@ export default function App() {
       finishOperation,
       refreshPm,
       removeChocolateyInternal,
+      setProgress,
+      setProgressLabel,
+      setStatus,
       startOperation,
     ]);
 
@@ -1262,13 +1369,25 @@ export default function App() {
           "winget install --force --source winget --id Microsoft.WindowsTerminal",
           "Reinstalling WinGet"
         );
+
+        finishOperation({
+          label:
+            "WinGet reinstalled",
+          status:
+            "WinGet reinstalled successfully.",
+        });
       } catch (error) {
         failOperation(
           "Failed to reinstall WinGet",
           error
         );
       }
-    }, []);
+    }, [
+      executePs,
+      failOperation,
+      finishOperation,
+      startOperation,
+    ]);
 
   /* =======================================================
    * CHECK INSTALLED APPS
@@ -1325,6 +1444,11 @@ export default function App() {
       ) {
         return;
       }
+
+      /*
+       * Validation errors below must land on the Apps channel.
+       */
+      scopeRef.current = "apps";
 
       const apps =
         APPS.filter(
@@ -1537,7 +1661,12 @@ export default function App() {
       finishOperation,
       mode,
       refreshInstalled,
+      refreshPm,
       selected,
+      setHasError,
+      setProgress,
+      setProgressLabel,
+      setStatus,
       startOperation,
     ]);
 
@@ -1547,6 +1676,17 @@ export default function App() {
 
   const upgradeAll =
     useCallback(async () => {
+      if (
+        operationRef.current
+      ) {
+        return;
+      }
+
+      /*
+       * Validation errors below must land on the Apps channel.
+       */
+      scopeRef.current = "apps";
+
       if (
         mode === "winget"
       ) {
@@ -1656,6 +1796,10 @@ export default function App() {
       mode,
       refreshInstalled,
       refreshPm,
+      setHasError,
+      setProgress,
+      setProgressLabel,
+      setStatus,
       startOperation,
     ]);
 
@@ -1947,8 +2091,16 @@ export default function App() {
 
         {tab === "tweaks" && (
           <Main>
-            <Tweaks
-              run={runPs}
+            <div className="min-h-0 flex-1">
+              <Tweaks run={runPs} />
+            </div>
+
+            <TweaksProgress
+              running={tweaksProg.running}
+              error={tweaksProg.error}
+              label={tweaksProg.label}
+              progress={tweaksProg.progress}
+              status={tweaksProg.status}
             />
           </Main>
         )}
@@ -1984,7 +2136,9 @@ export default function App() {
         {tab === "report" && (
           <Main>
             <Report
-              lastStatus={status}
+              lastStatus={
+                tweaksProg.status
+              }
             />
           </Main>
         )}
@@ -2109,6 +2263,9 @@ export default function App() {
               {mode === "winget" && (
                 <Btn
                   variant="red"
+                  disabled={
+                    isRunning
+                  }
                   onClick={
                     reinstallWinget
                   }
@@ -2204,15 +2361,15 @@ export default function App() {
             </Toolbar>
 
             {/* =================================================
-             * PROGRESS
+             * PROGRESS (Apps channel only)
              * ================================================= */}
 
             <ProgressPanel
-              running={isRunning}
-              error={hasError}
-              label={progressLabel}
-              progress={progress}
-              status={status}
+              running={appsProg.running}
+              error={appsProg.error}
+              label={appsProg.label}
+              progress={appsProg.progress}
+              status={appsProg.status}
             />
 
             {/* =================================================

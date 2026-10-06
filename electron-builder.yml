@@ -1,11 +1,9 @@
-
-
 appId: dev.local.openwinpatcher
 productName: OpenWinPatcher
 copyright: Copyright © 2026 Sten Pals
 artifactName: ${productName}-Setup-${version}.${ext}
 extraMetadata:
-    version: 1.0.4
+    version: 1.0.5
 directories:
   output: release/${version}
   buildResources: build
@@ -17,11 +15,17 @@ files:
   - build/icon.ico
   - package.json
 
-asar: true
+asar: false
 compression: normal          # use "maximum" for smaller release builds
 npmRebuild: false            # no native modules
-electronLanguages: [en-US]   # drops ~50 unused Chromium locale packs
-publish: null                # never auto-publish; upload releases yourself
+electronLanguages: [en-US, et-EE]   # Estonian + English Chromium locales only
+
+# Publishing: needs a provider. Replace owner/repo, and set GH_TOKEN in your environment.
+publish:
+  provider: github
+  owner: YOUR_GITHUB_USERNAME
+  repo: YOUR_REPO_NAME
+  releaseType: release       # "draft" if you want to review before it goes live
 
 # ------------------------------------------------------------------
 # Windows
@@ -36,7 +40,7 @@ win:
   legalTrademarks: OpenWinPatcher
 
 # ------------------------------------------------------------------
-# NSIS installer (.exe)
+# NSIS installer (.exe) - language chooser: English / Eesti
 # ------------------------------------------------------------------
 nsis:
   oneClick: false
@@ -52,6 +56,9 @@ nsis:
   runAfterFinish: true
   deleteAppDataOnUninstall: false
   artifactName: ${productName}-Setup-${version}.${ext}
+  multiLanguageInstaller: true
+  displayLanguageSelector: true
+  installerLanguages: [en_US, et_EE]
 
 # ------------------------------------------------------------------
 # MSI installer (.msi, built with WiX)
@@ -59,8 +66,6 @@ nsis:
 msi:
   oneClick: false
   perMachine: true
-  # Same UpgradeCode as the old wix/Package.wxs, so this MSI upgrades
-  # installs made with the previous packaging.
   upgradeCode: cbad8f5c-3a0d-4ea7-a74d-96d90498646f
   createDesktopShortcut: true
   createStartMenuShortcut: true

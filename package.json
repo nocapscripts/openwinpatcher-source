@@ -1,9 +1,9 @@
 {
   "name": "openwinpatcher",
   "productName": "OpenWinPatcher",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Free open-source Windows utility: install apps, tweaks, config and updates.",
-  "author": "Sten Pals <pals.sten@gmail.com>",
+  "author": "Sten Pals",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
